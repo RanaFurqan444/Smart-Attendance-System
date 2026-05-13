@@ -68,7 +68,7 @@ class SMSManager:
             return True, f"SMS simulated (Twilio not configured): {message}"
 
     def send_bulk_absent_alerts(self, class_id):
-        class_info = self.db.get_active_class(class_id)
+        class_info = self.db.get_class_by_id(class_id)
         if not class_info:
             return [], "Class not found"
 

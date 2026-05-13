@@ -200,8 +200,12 @@ class TeacherDashboard(ctk.CTkFrame):
 
         def start():
             sub_id = sub_map.get(sub_var.get())
-            lat = float(lat_entry.get()) if lat_entry.get() else None
-            lon = float(lon_entry.get()) if lon_entry.get() else None
+            try:
+                lat = float(lat_entry.get()) if lat_entry.get() else None
+                lon = float(lon_entry.get()) if lon_entry.get() else None
+            except ValueError:
+                status.configure(text="Invalid GPS coordinates", text_color="#EF4444")
+                return
 
             secret = self.qr_mgr.generate_class_secret()
             today = datetime.now().strftime("%Y-%m-%d")

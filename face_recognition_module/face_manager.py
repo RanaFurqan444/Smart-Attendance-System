@@ -88,7 +88,8 @@ class FaceManager:
             )
             if any(matches):
                 matched_idx = matches.index(True)
-                return False, f"This face is already registered to another student"
+                if self.known_ids[matched_idx] != student_db_id:
+                    return False, "This face is already registered to another student"
 
         # Save face image
         face_path = os.path.join(self.faces_dir, f"{student_id_str}.jpg")

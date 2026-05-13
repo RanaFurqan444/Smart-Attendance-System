@@ -386,6 +386,17 @@ class DatabaseManager:
         row = cursor.fetchone()
         return dict(row) if row else None
 
+    def get_class_by_id(self, class_id):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT c.*, sub.name as subject_name
+            FROM classes c JOIN subjects sub ON c.subject_id = sub.id
+            WHERE c.id=?
+        """, (class_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
     def update_class_qr_secret(self, class_id, qr_secret):
         conn = self.get_connection()
         cursor = conn.cursor()
