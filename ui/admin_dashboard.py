@@ -181,6 +181,10 @@ class AdminDashboard(ctk.CTkFrame):
         dialog.geometry("450x550")
         dialog.transient(self)
         dialog.grab_set()
+        dialog.after(150, lambda: dialog.focus_force())
+
+        container = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=10, pady=10)
 
         fields = {}
         field_list = [
@@ -195,11 +199,11 @@ class AdminDashboard(ctk.CTkFrame):
         ]
 
         for label, key in field_list:
-            ctk.CTkLabel(dialog, text=label, font=ctk.CTkFont(size=13)).pack(padx=20, pady=(8, 0), anchor="w")
-            entry = ctk.CTkEntry(dialog, height=35, width=350)
+            ctk.CTkLabel(container, text=label, font=ctk.CTkFont(size=13)).pack(padx=10, pady=(8, 0), anchor="w")
+            entry = ctk.CTkEntry(container, height=35, width=350)
             if key == "password":
                 entry.configure(show="*")
-            entry.pack(padx=20, pady=(2, 0))
+            entry.pack(padx=10, pady=(2, 0))
             fields[key] = entry
 
         def save():
@@ -225,9 +229,9 @@ class AdminDashboard(ctk.CTkFrame):
             else:
                 messagebox.showerror("Error", "Roll number already exists", parent=dialog)
 
-        ctk.CTkButton(dialog, text="Save Student", fg_color="#22C55E",
+        ctk.CTkButton(container, text="Save Student", fg_color="#22C55E",
                       hover_color="#16A34A", height=40, command=save
-                      ).pack(padx=20, pady=15)
+                      ).pack(padx=10, pady=15)
 
     def _register_face_dialog(self):
         selected = self.students_table.get_selected() if hasattr(self, 'students_table') else None
@@ -236,18 +240,22 @@ class AdminDashboard(ctk.CTkFrame):
         dialog.geometry("450x300")
         dialog.transient(self)
         dialog.grab_set()
+        dialog.after(150, lambda: dialog.focus_force())
 
-        ctk.CTkLabel(dialog, text="Register Student Face",
-                     font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(20, 10))
+        container = ctk.CTkFrame(dialog, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=10, pady=10)
 
-        ctk.CTkLabel(dialog, text="Roll Number:").pack(pady=(10, 0))
-        roll_entry = ctk.CTkEntry(dialog, height=35, width=250)
+        ctk.CTkLabel(container, text="Register Student Face",
+                     font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(10, 10))
+
+        ctk.CTkLabel(container, text="Roll Number:").pack(pady=(10, 0))
+        roll_entry = ctk.CTkEntry(container, height=35, width=250)
         roll_entry.pack(pady=(5, 10))
 
         if selected:
             roll_entry.insert(0, selected.get("student_id", ""))
 
-        status_label = ctk.CTkLabel(dialog, text="", font=ctk.CTkFont(size=12))
+        status_label = ctk.CTkLabel(container, text="", font=ctk.CTkFont(size=12))
         status_label.pack(pady=5)
 
         def from_image():
@@ -290,7 +298,7 @@ class AdminDashboard(ctk.CTkFrame):
             if success:
                 self.face_mgr.reload_faces()
 
-        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame = ctk.CTkFrame(container, fg_color="transparent")
         btn_frame.pack(pady=10)
         ctk.CTkButton(btn_frame, text="From Image", fg_color="#3B82F6",
                       command=from_image).pack(side="left", padx=10)
@@ -326,6 +334,10 @@ class AdminDashboard(ctk.CTkFrame):
         dialog.geometry("450x480")
         dialog.transient(self)
         dialog.grab_set()
+        dialog.after(150, lambda: dialog.focus_force())
+
+        container = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=10, pady=10)
 
         fields = {}
         field_list = [
@@ -339,11 +351,11 @@ class AdminDashboard(ctk.CTkFrame):
         ]
 
         for label, key in field_list:
-            ctk.CTkLabel(dialog, text=label).pack(padx=20, pady=(8, 0), anchor="w")
-            entry = ctk.CTkEntry(dialog, height=35, width=350)
+            ctk.CTkLabel(container, text=label).pack(padx=10, pady=(8, 0), anchor="w")
+            entry = ctk.CTkEntry(container, height=35, width=350)
             if key == "password":
                 entry.configure(show="*")
-            entry.pack(padx=20, pady=(2, 0))
+            entry.pack(padx=10, pady=(2, 0))
             fields[key] = entry
 
         def save():
@@ -366,9 +378,9 @@ class AdminDashboard(ctk.CTkFrame):
             else:
                 messagebox.showerror("Error", "Employee ID already exists", parent=dialog)
 
-        ctk.CTkButton(dialog, text="Save Teacher", fg_color="#22C55E",
+        ctk.CTkButton(container, text="Save Teacher", fg_color="#22C55E",
                       height=40, command=save
-                      ).pack(padx=20, pady=15)
+                      ).pack(padx=10, pady=15)
 
     # ---- Subjects ----
     def _show_subjects(self):
@@ -401,22 +413,27 @@ class AdminDashboard(ctk.CTkFrame):
         dialog.transient(self)
         dialog.grab_set()
 
+        dialog.after(150, lambda: dialog.focus_force())
+
+        container = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=10, pady=10)
+
         fields = {}
         for label, key in [
             ("Subject Name", "name"), ("Subject Code", "code"),
             ("Department", "department"), ("Semester", "semester")
         ]:
-            ctk.CTkLabel(dialog, text=label).pack(padx=20, pady=(8, 0), anchor="w")
-            entry = ctk.CTkEntry(dialog, height=35, width=350)
-            entry.pack(padx=20, pady=(2, 0))
+            ctk.CTkLabel(container, text=label).pack(padx=10, pady=(8, 0), anchor="w")
+            entry = ctk.CTkEntry(container, height=35, width=350)
+            entry.pack(padx=10, pady=(2, 0))
             fields[key] = entry
 
-        ctk.CTkLabel(dialog, text="Assign Teacher").pack(padx=20, pady=(8, 0), anchor="w")
+        ctk.CTkLabel(container, text="Assign Teacher").pack(padx=10, pady=(8, 0), anchor="w")
         teachers = self.db.get_all_teachers()
         teacher_names = {f"{t['full_name']} ({t['employee_id']})": t["id"] for t in teachers}
         teacher_var = ctk.StringVar(value="Select Teacher")
-        ctk.CTkOptionMenu(dialog, variable=teacher_var, values=list(teacher_names.keys()) or ["No teachers"],
-                          width=350).pack(padx=20, pady=(2, 0))
+        ctk.CTkOptionMenu(container, variable=teacher_var, values=list(teacher_names.keys()) or ["No teachers"],
+                          width=350).pack(padx=10, pady=(2, 0))
 
         def save():
             data = {k: e.get().strip() for k, e in fields.items()}
@@ -433,8 +450,8 @@ class AdminDashboard(ctk.CTkFrame):
             else:
                 messagebox.showerror("Error", "Subject code already exists", parent=dialog)
 
-        ctk.CTkButton(dialog, text="Save Subject", fg_color="#22C55E", height=40,
-                      command=save).pack(padx=20, pady=15)
+        ctk.CTkButton(container, text="Save Subject", fg_color="#22C55E", height=40,
+                      command=save).pack(padx=10, pady=15)
 
     def _enroll_dialog(self):
         dialog = ctk.CTkToplevel(self)
@@ -442,22 +459,26 @@ class AdminDashboard(ctk.CTkFrame):
         dialog.geometry("450x350")
         dialog.transient(self)
         dialog.grab_set()
+        dialog.after(150, lambda: dialog.focus_force())
 
-        ctk.CTkLabel(dialog, text="Enroll Student in Subject",
-                     font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(20, 10))
+        container = ctk.CTkFrame(dialog, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=10, pady=10)
 
-        ctk.CTkLabel(dialog, text="Roll Number:").pack(pady=(10, 0))
-        roll_entry = ctk.CTkEntry(dialog, height=35, width=300)
+        ctk.CTkLabel(container, text="Enroll Student in Subject",
+                     font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(10, 10))
+
+        ctk.CTkLabel(container, text="Roll Number:").pack(pady=(10, 0))
+        roll_entry = ctk.CTkEntry(container, height=35, width=300)
         roll_entry.pack(pady=5)
 
-        ctk.CTkLabel(dialog, text="Subject:").pack(pady=(10, 0))
+        ctk.CTkLabel(container, text="Subject:").pack(pady=(10, 0))
         subjects = self.db.get_all_subjects()
         sub_map = {f"{s['name']} ({s['code']})": s["id"] for s in subjects}
         sub_var = ctk.StringVar(value="Select Subject")
-        ctk.CTkOptionMenu(dialog, variable=sub_var, values=list(sub_map.keys()) or ["No subjects"],
+        ctk.CTkOptionMenu(container, variable=sub_var, values=list(sub_map.keys()) or ["No subjects"],
                           width=300).pack(pady=5)
 
-        status = ctk.CTkLabel(dialog, text="", font=ctk.CTkFont(size=12))
+        status = ctk.CTkLabel(container, text="", font=ctk.CTkFont(size=12))
         status.pack(pady=5)
 
         def enroll():
@@ -475,7 +496,7 @@ class AdminDashboard(ctk.CTkFrame):
             else:
                 status.configure(text="Already enrolled", text_color="#F59E0B")
 
-        ctk.CTkButton(dialog, text="Enroll", fg_color="#3B82F6", height=40,
+        ctk.CTkButton(container, text="Enroll", fg_color="#3B82F6", height=40,
                       command=enroll).pack(pady=15)
 
     # ---- Attendance ----
