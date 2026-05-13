@@ -24,6 +24,13 @@ try:
 except ImportError:
     pass
 
+HAS_PYZBAR = False
+try:
+    from pyzbar import pyzbar as _pyzbar_mod
+    HAS_PYZBAR = True
+except ImportError:
+    _pyzbar_mod = None
+
 import importlib.util as _iutil
 
 # PIL: check without importing (0.5ms vs 104ms)
@@ -113,6 +120,37 @@ def _auto_install_face_libs():
     except Exception:
         return False
 
+
+def _decode_qr(image):
+    """Decode QR code from image using pyzbar (preferred) or cv2 fallback.
+    Returns list of decoded string data values."""
+    results = []
+    # Try pyzbar first (more reliable)
+    if HAS_PYZBAR:
+        try:
+            decoded = _pyzbar_mod.decode(image)
+            for obj in decoded:
+                data = obj.data.decode('utf-8', errors='ignore')
+                if data:
+                    results.append(data)
+            if results:
+                return results
+        except Exception:
+            pass
+    # Fallback to cv2.QRCodeDetector
+    try:
+        _cv2, _ = _ensure_face_libs()
+        if _cv2 is None:
+            import cv2 as _cv2
+        det = _cv2.QRCodeDetector()
+        data, pts, _ = det.detectAndDecode(image)
+        if data:
+            results.append(data)
+    except Exception:
+        pass
+    return results
+
+
 # ─── Custom Face Recognizer ───────────────────────────────────────────────────
 class _FaceRecognizer:
     """
@@ -129,7 +167,7 @@ class _FaceRecognizer:
     """
 
     TARGET_SIZE   = 128
-    SAFETY_MARGIN = 1.3   # personal_threshold = max_aug_self_dist × 1.3
+    SAFETY_MARGIN = 1.5   # personal_threshold = max_aug_self_dist × 1.5
 
     # Cascade classifiers — loaded ONCE, reused forever
     _face_casc  = None
@@ -305,7 +343,7 @@ class _FaceRecognizer:
             if fn > 0: master /= fn
             dists  = [float(_np.linalg.norm(f - master)) for f in feats]
             thresh = max(dists) * self.SAFETY_MARGIN
-            thresh = max(0.09, min(thresh, 0.22))   # hard cap
+            thresh = max(0.12, min(thresh, 0.30))   # hard cap
             self._db.append((lbl, master, thresh))
 
     def predict(self, gray_roi):
@@ -2032,6 +2070,43 @@ class SchoolManagerPro:
         tk.Button(act, text="📱 QR Code", bg="#8b5cf6", fg="white",
                   command=lambda: self._generate_student_qr(sid)).pack(side="left", padx=3)
 
+        # Show face photo status + upload button
+        has_photo = bool(stu.get("photo_path") and (self.data_dir / stu["photo_path"]).exists())
+        face_f = tk.Frame(info_tab, bg=c["dark"], padx=30)
+        face_f.pack(fill="x", pady=(5,0))
+        tk.Label(face_f,
+                 text=f"📷 Face Photo: {'✅ Uploaded' if has_photo else '❌ Not uploaded'}",
+                 bg=c["dark"], fg=c["success"] if has_photo else c["danger"],
+                 font=("Helvetica",9,"bold")).pack(side="left")
+
+        def _upload_face_photo():
+            path = filedialog.askopenfilename(
+                title=f"Upload Face Photo for {stu['name']}",
+                filetypes=[("Images", "*.png *.jpg *.jpeg *.bmp")])
+            if not path: return
+            pd = self.data_dir / "student_photos"
+            pd.mkdir(exist_ok=True)
+            ext = Path(path).suffix.lower()
+            dest = pd / f"{sid}{ext}"
+            try:
+                shutil.copyfile(path, dest)
+                stu["photo_path"] = str(dest.relative_to(self.data_dir))
+                self.save_data()
+                messagebox.showinfo("✅", f"Photo uploaded for {stu['name']}!\n"
+                                    "Face attendance will now work for this student.")
+                dlg.destroy()
+            except Exception as ex:
+                messagebox.showerror("Error", f"Photo upload failed: {ex}")
+
+        tk.Button(face_f, text="📷 Upload Face Photo" if not has_photo else "🔄 Change Photo",
+                  bg="#7c3aed" if not has_photo else c["primary"],
+                  fg="white", font=("Helvetica",9),
+                  command=_upload_face_photo).pack(side="left", padx=8)
+        if not has_photo:
+            tk.Label(face_f, text="(Required for Face Attendance)",
+                     bg=c["dark"], fg=c["warning"],
+                     font=("Helvetica",8)).pack(side="left")
+
         # ── Fee History tab ───────────────────────────────────────────────
         fee_tab = tk.Frame(nb, bg=c["dark"])
         nb.add(fee_tab, text="💰 Fee History")
@@ -2300,8 +2375,24 @@ class SchoolManagerPro:
         fw = cv.create_window((0,0), window=frm, anchor="nw")
         frm.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
         cv.bind("<Configure>", lambda e: cv.itemconfig(fw, width=e.width))
-        cv.bind_all("<MouseWheel>", lambda e: cv.yview_scroll(int(-1*(e.delta/120)),"units"))
-        dlg.bind("<Destroy>", lambda e: cv.unbind_all("<MouseWheel>"))
+        def _stu_scroll(event):
+            if event.num == 4:
+                cv.yview_scroll(-3, "units")
+            elif event.num == 5:
+                cv.yview_scroll(3, "units")
+            else:
+                cv.yview_scroll(int(-1*(event.delta/120)), "units")
+        cv.bind_all("<MouseWheel>", _stu_scroll)
+        cv.bind_all("<Button-4>", _stu_scroll)
+        cv.bind_all("<Button-5>", _stu_scroll)
+        def _stu_unbind(e):
+            try:
+                cv.unbind_all("<MouseWheel>")
+                cv.unbind_all("<Button-4>")
+                cv.unbind_all("<Button-5>")
+            except Exception:
+                pass
+        dlg.bind("<Destroy>", _stu_unbind)
 
         fields = [
             ("Admission No *","admissionNo",
@@ -2778,16 +2869,16 @@ class SchoolManagerPro:
             _cv2a, _npa = _ensure_face_libs()
 
         if not cls:
-            messagebox.showerror("Error", "Pehle class select karein"); return
+            messagebox.showerror("Error", "Select a class first"); return
         try:
             datetime.datetime.strptime(date_str, "%Y-%m-%d")
         except Exception:
-            messagebox.showerror("Error", "Date YYYY-MM-DD format mein honi chahiye"); return
+            messagebox.showerror("Error", "Date must be in YYYY-MM-DD format"); return
 
         # ── Collect students who have a photo uploaded ─────────────────────
         students = [s for s in self.students if s.get("class") == cls]
         if not students:
-            messagebox.showinfo("Info", f"Class {cls} mein koi student nahi"); return
+            messagebox.showinfo("Info", f"No students found in class {cls}"); return
 
         recognizer_att = _FaceRecognizer()
         face_cascade   = recognizer_att._face_casc
@@ -2822,10 +2913,13 @@ class SchoolManagerPro:
 
         if not train_imgs:
             messagebox.showerror(
-                "Koi Photo Nahi Mili",
-                f"Class {cls} ke kisi bhi student ki photo upload nahi ki gayi.\n\n"
-                "Students add karte waqt photo upload karein taake\n"
-                "face recognition attendance kaam kar sake."
+                "No Face Photos Found",
+                f"Class {cls} – No student has a face photo uploaded.\n\n"
+                "How to fix:\n"
+                "1. Go to Students → Double-click a student\n"
+                "2. Click '📷 Upload Face Photo' button\n"
+                "3. Upload a clear face photo for each student\n\n"
+                "Face attendance requires student photos to work."
             )
             return
 
@@ -3299,6 +3393,39 @@ class SchoolManagerPro:
         btn_frame = tk.Frame(status_win, bg=c["dark"])
         btn_frame.pack(pady=10)
 
+        def _process_qr_data(data):
+            """Process decoded QR data string and mark attendance."""
+            if not data or data in marked_today:
+                return
+            try:
+                qr_data = json.loads(data)
+                stu_id = qr_data.get("id", "")
+                token = qr_data.get("token", "")
+                stu = next((s for s in self.students if s["id"]==stu_id), None)
+                if stu and self._verify_qr_token(stu_id, token):
+                    stu.setdefault("attendance",{})[date_str] = "Present"
+                    self.save_data()
+                    marked_today.add(data)
+                    log(f"✅ {stu['name']} – Present (token verified)")
+                elif stu:
+                    log(f"⚠️  {stu['name']} – QR expired! Token invalid")
+                else:
+                    log(f"⚠️  Unknown student ID in QR")
+            except (json.JSONDecodeError, KeyError):
+                try:
+                    import base64 as b64
+                    stu_id = b64.urlsafe_b64decode(data).decode()
+                    stu = next((s for s in self.students if s["id"]==stu_id), None)
+                    if stu:
+                        stu.setdefault("attendance",{})[date_str] = "Present"
+                        self.save_data()
+                        marked_today.add(data)
+                        log(f"✅ {stu['name']} – Present (legacy QR)")
+                    else:
+                        log(f"⚠️  Unknown QR data")
+                except Exception as ex:
+                    log(f"❌ Error: {ex}")
+
         def scan_from_image():
             """Scan QR from an image file instead of webcam."""
             path = filedialog.askopenfilename(
@@ -3308,35 +3435,10 @@ class SchoolManagerPro:
             img = cv2.imread(path)
             if img is None:
                 log("❌ Could not read image file"); return
-            det = cv2.QRCodeDetector()
-            data, pts, _ = det.detectAndDecode(img)
-            if data:
-                try:
-                    qr_data = json.loads(data)
-                    stu_id = qr_data.get("id", "")
-                    token = qr_data.get("token", "")
-                    stu = next((s for s in self.students if s["id"]==stu_id), None)
-                    if stu and self._verify_qr_token(stu_id, token):
-                        stu.setdefault("attendance",{})[date_str] = "Present"
-                        self.save_data()
-                        log(f"✅ {stu['name']} – Present (from image, token verified)")
-                    elif stu:
-                        log(f"⚠️  {stu['name']} – QR expired! Token invalid")
-                    else:
-                        log(f"⚠️  Unknown student ID in QR")
-                except (json.JSONDecodeError, KeyError):
-                    try:
-                        import base64 as b64
-                        stu_id = b64.urlsafe_b64decode(data).decode()
-                        stu = next((s for s in self.students if s["id"]==stu_id), None)
-                        if stu:
-                            stu.setdefault("attendance",{})[date_str] = "Present"
-                            self.save_data()
-                            log(f"✅ {stu['name']} – Present (from image, legacy QR)")
-                        else:
-                            log(f"⚠️  Unknown QR data")
-                    except Exception as ex:
-                        log(f"❌ Error: {ex}")
+            decoded_list = _decode_qr(img)
+            if decoded_list:
+                for data in decoded_list:
+                    _process_qr_data(data)
             else:
                 log("❌ No QR code found in image")
 
@@ -3349,9 +3451,10 @@ class SchoolManagerPro:
 
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
+            cap.release()
             log("⚠️  Webcam not available – use 'Scan from Image File' button")
+            log("💡  Tip: install pyzbar for better scanning: pip install pyzbar")
             return
-        detector = cv2.QRCodeDetector()
 
         def _scan_frame():
             if stop_flag[0]:
@@ -3361,45 +3464,9 @@ class SchoolManagerPro:
             if not ret:
                 self.root.after(100, _scan_frame); return
 
-            data, points, _ = detector.detectAndDecode(frame)
-
-            if points is not None:
-                pts = points.astype(int).reshape(-1,2)
-                for i in range(len(pts)):
-                    cv2.line(frame, tuple(pts[i]),
-                             tuple(pts[(i+1) % len(pts)]), (0,255,0), 3)
-
-                if data and data not in marked_today:
-                    try:
-                        qr_data = json.loads(data)
-                        stu_id = qr_data.get("id", "")
-                        token = qr_data.get("token", "")
-                        stu = next((s for s in self.students if s["id"]==stu_id), None)
-                        if stu and self._verify_qr_token(stu_id, token):
-                            stu.setdefault("attendance",{})[date_str] = "Present"
-                            self.save_data()
-                            marked_today.add(data)
-                            log(f"✅ {stu['name']} ({stu.get('class','')} {stu.get('section','')}) – Present (token verified)")
-                        elif stu and not self._verify_qr_token(stu_id, token):
-                            log(f"⚠️  {stu['name']} – QR expired! Ask teacher for fresh QR")
-                        else:
-                            log(f"⚠️  Unknown QR: {data[:30]}...")
-                    except (json.JSONDecodeError, KeyError):
-                        try:
-                            import base64 as b64
-                            stu_id = b64.urlsafe_b64decode(data).decode()
-                            stu = next((s for s in self.students if s["id"]==stu_id), None)
-                            if stu:
-                                stu.setdefault("attendance",{})[date_str] = "Present"
-                                self.save_data()
-                                marked_today.add(data)
-                                log(f"✅ {stu['name']} – Present (legacy QR)")
-                            else:
-                                log(f"⚠️  Unknown QR: {data[:20]}...")
-                        except Exception as ex:
-                            log(f"❌ Error: {ex}")
-                    except Exception as ex:
-                        log(f"❌ Error: {ex}")
+            decoded_list = _decode_qr(frame)
+            for data in decoded_list:
+                _process_qr_data(data)
 
             cv2.imshow(f"QR Scanner – {date_str} (ESC to stop)", frame)
             key = cv2.waitKey(1) & 0xFF
@@ -3491,12 +3558,12 @@ class SchoolManagerPro:
         tbl_f = tk.Frame(self.main, bg=c["content_bg"], padx=25)
         tbl_f.pack(fill="both", expand=True)
 
-        cols = ("#","Name","Subject","Phone","Salary","Qualification")
+        cols = ("#","Name","Subject","Phone","Email","Salary","Qualification")
         self._tch_tree = ttk.Treeview(tbl_f, columns=cols, show="headings",
                                        style="Custom.Treeview", height=18)
         for col in cols:
             self._tch_tree.heading(col, text=col)
-            self._tch_tree.column(col, anchor="center", width=130)
+            self._tch_tree.column(col, anchor="center", width=110)
         vsb = ttk.Scrollbar(tbl_f, orient="vertical", command=self._tch_tree.yview)
         self._tch_tree.configure(yscrollcommand=vsb.set)
         self._tch_tree.pack(side="left", fill="both", expand=True)
@@ -3510,8 +3577,8 @@ class SchoolManagerPro:
         for idx, t in enumerate(self.teachers, 1):
             self._tch_tree.insert("","end",
                 values=(idx, t.get("name",""), t.get("subject",""),
-                        t.get("phone",""), t.get("salary",""),
-                        t.get("qualification","")),
+                        t.get("phone",""), t.get("email",""),
+                        t.get("salary",""), t.get("qualification","")),
                 tags=(t["id"],))
 
     def _view_teacher(self):
@@ -3523,12 +3590,13 @@ class SchoolManagerPro:
         c = self.colors
         dlg = tk.Toplevel(self.root)
         dlg.title(f"Teacher: {t['name']}")
-        dlg.geometry("420x320")
+        dlg.geometry("420x380")
         dlg.configure(bg=c["dark"])
         frm = tk.Frame(dlg, bg=c["dark"], padx=30, pady=20)
         frm.pack(fill="both", expand=True)
         for lbl, key in [("Name","name"),("Subject","subject"),
-                          ("Phone","phone"),("Salary","salary"),
+                          ("Phone","phone"),("Email","email"),
+                          ("Salary","salary"),
                           ("Qualification","qualification")]:
             row = tk.Frame(frm, bg=c["dark"])
             row.pack(fill="x", pady=4)
@@ -3549,15 +3617,44 @@ class SchoolManagerPro:
         is_edit = edit is not None
         dlg = tk.Toplevel(self.root)
         dlg.title("Edit Teacher" if is_edit else "Add Teacher")
-        dlg.geometry("480x420")
+        dlg.geometry("500x600")
         dlg.configure(bg=c["dark"])
         dlg.transient(self.root); dlg.grab_set()
         tk.Label(dlg, text="Edit Teacher" if is_edit else "➕ Add Teacher",
                  font=("Helvetica",15,"bold"), bg=c["dark"], fg="white").pack(pady=15)
-        frm = tk.Frame(dlg, bg=c["dark"], padx=30)
-        frm.pack(fill="both", expand=True)
+
+        # scrollable frame so the Save button is always accessible
+        cv = tk.Canvas(dlg, bg=c["dark"], highlightthickness=0)
+        sb = ttk.Scrollbar(dlg, orient="vertical", command=cv.yview)
+        cv.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        cv.pack(side="left", fill="both", expand=True)
+        frm = tk.Frame(cv, bg=c["dark"], padx=30)
+        fw = cv.create_window((0,0), window=frm, anchor="nw")
+        frm.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
+        cv.bind("<Configure>", lambda e: cv.itemconfig(fw, width=e.width))
+        def _tchr_scroll(event):
+            if event.num == 4:
+                cv.yview_scroll(-3, "units")
+            elif event.num == 5:
+                cv.yview_scroll(3, "units")
+            else:
+                cv.yview_scroll(int(-1*(event.delta/120)), "units")
+        cv.bind_all("<MouseWheel>", _tchr_scroll)
+        cv.bind_all("<Button-4>", _tchr_scroll)
+        cv.bind_all("<Button-5>", _tchr_scroll)
+        def _tchr_unbind(e):
+            try:
+                cv.unbind_all("<MouseWheel>")
+                cv.unbind_all("<Button-4>")
+                cv.unbind_all("<Button-5>")
+            except Exception:
+                pass
+        dlg.bind("<Destroy>", _tchr_unbind)
+
         fields = [("Name *","name"),("Subject","subject"),
-                  ("Phone","phone"),("Salary","salary"),
+                  ("Phone","phone"),("Email","email"),
+                  ("Salary","salary"),
                   ("Qualification","qualification")]
         entries = {}
         for lbl, key in fields:
@@ -5531,6 +5628,17 @@ class SchoolManagerPro:
         fw = cv.create_window((0,0), window=frm, anchor="nw")
         frm.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
         cv.bind("<Configure>", lambda e: cv.itemconfig(fw, width=e.width))
+
+        def _on_scroll(event):
+            if event.num == 4:
+                cv.yview_scroll(-3, "units")
+            elif event.num == 5:
+                cv.yview_scroll(3, "units")
+            else:
+                cv.yview_scroll(int(-1*(event.delta/120)), "units")
+        cv.bind_all("<MouseWheel>", _on_scroll)
+        cv.bind_all("<Button-4>", _on_scroll)
+        cv.bind_all("<Button-5>", _on_scroll)
 
         # ── School Info ────────────────────────────────────────────────────
         sec = self._settings_section(frm, "🏫 School Information")
