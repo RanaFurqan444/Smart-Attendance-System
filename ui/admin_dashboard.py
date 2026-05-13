@@ -194,13 +194,12 @@ class AdminDashboard(ctk.CTkFrame):
             ("Phone", "phone"),
         ]
 
-        for idx, (label, key) in enumerate(field_list):
-            ctk.CTkLabel(dialog, text=label, font=ctk.CTkFont(size=13)
-                         ).grid(row=idx, column=0, padx=20, pady=(10, 0), sticky="w")
-            entry = ctk.CTkEntry(dialog, height=35, width=300)
+        for label, key in field_list:
+            ctk.CTkLabel(dialog, text=label, font=ctk.CTkFont(size=13)).pack(padx=20, pady=(8, 0), anchor="w")
+            entry = ctk.CTkEntry(dialog, height=35, width=350)
             if key == "password":
                 entry.configure(show="*")
-            entry.grid(row=idx, column=1, padx=20, pady=(10, 0))
+            entry.pack(padx=20, pady=(2, 0))
             fields[key] = entry
 
         def save():
@@ -228,7 +227,7 @@ class AdminDashboard(ctk.CTkFrame):
 
         ctk.CTkButton(dialog, text="Save Student", fg_color="#22C55E",
                       hover_color="#16A34A", height=40, command=save
-                      ).grid(row=len(field_list), column=0, columnspan=2, padx=20, pady=20)
+                      ).pack(padx=20, pady=15)
 
     def _register_face_dialog(self):
         selected = self.students_table.get_selected() if hasattr(self, 'students_table') else None
@@ -339,12 +338,12 @@ class AdminDashboard(ctk.CTkFrame):
             ("Phone", "phone"),
         ]
 
-        for idx, (label, key) in enumerate(field_list):
-            ctk.CTkLabel(dialog, text=label).grid(row=idx, column=0, padx=20, pady=(10, 0), sticky="w")
-            entry = ctk.CTkEntry(dialog, height=35, width=300)
+        for label, key in field_list:
+            ctk.CTkLabel(dialog, text=label).pack(padx=20, pady=(8, 0), anchor="w")
+            entry = ctk.CTkEntry(dialog, height=35, width=350)
             if key == "password":
                 entry.configure(show="*")
-            entry.grid(row=idx, column=1, padx=20, pady=(10, 0))
+            entry.pack(padx=20, pady=(2, 0))
             fields[key] = entry
 
         def save():
@@ -369,7 +368,7 @@ class AdminDashboard(ctk.CTkFrame):
 
         ctk.CTkButton(dialog, text="Save Teacher", fg_color="#22C55E",
                       height=40, command=save
-                      ).grid(row=len(field_list), column=0, columnspan=2, padx=20, pady=20)
+                      ).pack(padx=20, pady=15)
 
     # ---- Subjects ----
     def _show_subjects(self):
@@ -403,21 +402,21 @@ class AdminDashboard(ctk.CTkFrame):
         dialog.grab_set()
 
         fields = {}
-        for idx, (label, key) in enumerate([
+        for label, key in [
             ("Subject Name", "name"), ("Subject Code", "code"),
             ("Department", "department"), ("Semester", "semester")
-        ]):
-            ctk.CTkLabel(dialog, text=label).grid(row=idx, column=0, padx=20, pady=(10, 0), sticky="w")
-            entry = ctk.CTkEntry(dialog, height=35, width=300)
-            entry.grid(row=idx, column=1, padx=20, pady=(10, 0))
+        ]:
+            ctk.CTkLabel(dialog, text=label).pack(padx=20, pady=(8, 0), anchor="w")
+            entry = ctk.CTkEntry(dialog, height=35, width=350)
+            entry.pack(padx=20, pady=(2, 0))
             fields[key] = entry
 
-        ctk.CTkLabel(dialog, text="Assign Teacher").grid(row=4, column=0, padx=20, pady=(10, 0), sticky="w")
+        ctk.CTkLabel(dialog, text="Assign Teacher").pack(padx=20, pady=(8, 0), anchor="w")
         teachers = self.db.get_all_teachers()
         teacher_names = {f"{t['full_name']} ({t['employee_id']})": t["id"] for t in teachers}
         teacher_var = ctk.StringVar(value="Select Teacher")
         ctk.CTkOptionMenu(dialog, variable=teacher_var, values=list(teacher_names.keys()) or ["No teachers"],
-                          width=300).grid(row=4, column=1, padx=20, pady=(10, 0))
+                          width=350).pack(padx=20, pady=(2, 0))
 
         def save():
             data = {k: e.get().strip() for k, e in fields.items()}
@@ -435,7 +434,7 @@ class AdminDashboard(ctk.CTkFrame):
                 messagebox.showerror("Error", "Subject code already exists", parent=dialog)
 
         ctk.CTkButton(dialog, text="Save Subject", fg_color="#22C55E", height=40,
-                      command=save).grid(row=5, column=0, columnspan=2, padx=20, pady=20)
+                      command=save).pack(padx=20, pady=15)
 
     def _enroll_dialog(self):
         dialog = ctk.CTkToplevel(self)
