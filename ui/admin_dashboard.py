@@ -179,131 +179,125 @@ class AdminDashboard(ctk.CTkFrame):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Add New Student")
         dialog.geometry("450x550")
-        dialog.transient(self)
-        dialog.grab_set()
-        dialog.after(150, lambda: dialog.focus_force())
 
-        container = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
-        container.pack(fill="both", expand=True, padx=10, pady=10)
+        def _build():
+            fields = {}
+            field_list = [
+                ("Full Name", "full_name"),
+                ("Username", "username"),
+                ("Password", "password"),
+                ("Roll Number", "student_id"),
+                ("Department", "department"),
+                ("Semester", "semester"),
+                ("Email", "email"),
+                ("Phone", "phone"),
+            ]
 
-        fields = {}
-        field_list = [
-            ("Full Name", "full_name"),
-            ("Username", "username"),
-            ("Password", "password"),
-            ("Roll Number", "student_id"),
-            ("Department", "department"),
-            ("Semester", "semester"),
-            ("Email", "email"),
-            ("Phone", "phone"),
-        ]
+            for label, key in field_list:
+                ctk.CTkLabel(dialog, text=label, font=ctk.CTkFont(size=13)).pack(padx=20, pady=(8, 0), anchor="w")
+                entry = ctk.CTkEntry(dialog, height=35, width=350)
+                if key == "password":
+                    entry.configure(show="*")
+                entry.pack(padx=20, pady=(2, 0))
+                fields[key] = entry
 
-        for label, key in field_list:
-            ctk.CTkLabel(container, text=label, font=ctk.CTkFont(size=13)).pack(padx=10, pady=(8, 0), anchor="w")
-            entry = ctk.CTkEntry(container, height=35, width=350)
-            if key == "password":
-                entry.configure(show="*")
-            entry.pack(padx=10, pady=(2, 0))
-            fields[key] = entry
+            def save():
+                data = {k: e.get().strip() for k, e in fields.items()}
+                if not all(data.get(k) for k in ["full_name", "username", "password", "student_id", "department"]):
+                    messagebox.showerror("Error", "Please fill all required fields", parent=dialog)
+                    return
 
-        def save():
-            data = {k: e.get().strip() for k, e in fields.items()}
-            if not all(data.get(k) for k in ["full_name", "username", "password", "student_id", "department"]):
-                messagebox.showerror("Error", "Please fill all required fields", parent=dialog)
-                return
+                user_id = self.db.create_user(
+                    data["username"], data["password"], data["full_name"],
+                    "student", data["email"], data["phone"]
+                )
+                if not user_id:
+                    messagebox.showerror("Error", "Username already exists", parent=dialog)
+                    return
 
-            user_id = self.db.create_user(
-                data["username"], data["password"], data["full_name"],
-                "student", data["email"], data["phone"]
-            )
-            if not user_id:
-                messagebox.showerror("Error", "Username already exists", parent=dialog)
-                return
+                semester = int(data.get("semester") or 1)
+                result = self.db.add_student(user_id, data["student_id"], data["department"], semester)
+                if result:
+                    messagebox.showinfo("Success", "Student added successfully", parent=dialog)
+                    dialog.destroy()
+                    self._navigate("students")
+                else:
+                    messagebox.showerror("Error", "Roll number already exists", parent=dialog)
 
-            semester = int(data.get("semester") or 1)
-            result = self.db.add_student(user_id, data["student_id"], data["department"], semester)
-            if result:
-                messagebox.showinfo("Success", "Student added successfully", parent=dialog)
-                dialog.destroy()
-                self._navigate("students")
-            else:
-                messagebox.showerror("Error", "Roll number already exists", parent=dialog)
+            ctk.CTkButton(dialog, text="Save Student", fg_color="#22C55E",
+                          hover_color="#16A34A", height=40, command=save
+                          ).pack(padx=20, pady=15)
 
-        ctk.CTkButton(container, text="Save Student", fg_color="#22C55E",
-                      hover_color="#16A34A", height=40, command=save
-                      ).pack(padx=10, pady=15)
+        dialog.after(200, _build)
 
     def _register_face_dialog(self):
         selected = self.students_table.get_selected() if hasattr(self, 'students_table') else None
         dialog = ctk.CTkToplevel(self)
         dialog.title("Register Face")
         dialog.geometry("450x300")
-        dialog.transient(self)
-        dialog.grab_set()
-        dialog.after(150, lambda: dialog.focus_force())
 
-        container = ctk.CTkFrame(dialog, fg_color="transparent")
-        container.pack(fill="both", expand=True, padx=10, pady=10)
+        def _build():
+            ctk.CTkLabel(dialog, text="Register Student Face",
+                         font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(20, 10))
 
-        ctk.CTkLabel(container, text="Register Student Face",
-                     font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(10, 10))
+            ctk.CTkLabel(dialog, text="Roll Number:").pack(pady=(10, 0))
+            roll_entry = ctk.CTkEntry(dialog, height=35, width=250)
+            roll_entry.pack(pady=(5, 10))
 
-        ctk.CTkLabel(container, text="Roll Number:").pack(pady=(10, 0))
-        roll_entry = ctk.CTkEntry(container, height=35, width=250)
-        roll_entry.pack(pady=(5, 10))
+            if selected:
+                roll_entry.insert(0, selected.get("student_id", ""))
 
-        if selected:
-            roll_entry.insert(0, selected.get("student_id", ""))
+            status_label = ctk.CTkLabel(dialog, text="", font=ctk.CTkFont(size=12))
+            status_label.pack(pady=5)
 
-        status_label = ctk.CTkLabel(container, text="", font=ctk.CTkFont(size=12))
-        status_label.pack(pady=5)
+            def from_image():
+                roll = roll_entry.get().strip()
+                if not roll:
+                    status_label.configure(text="Enter roll number", text_color="#EF4444")
+                    return
+                student = self.db.get_student_by_id(roll)
+                if not student:
+                    status_label.configure(text="Student not found", text_color="#EF4444")
+                    return
+                filepath = filedialog.askopenfilename(
+                    title="Select Face Image",
+                    filetypes=[("Images", "*.jpg *.jpeg *.png *.bmp")],
+                    parent=dialog
+                )
+                if filepath:
+                    success, msg = self.face_mgr.register_face_from_image(
+                        filepath, student["id"], student["student_id"]
+                    )
+                    color = "#22C55E" if success else "#EF4444"
+                    status_label.configure(text=msg, text_color=color)
+                    if success:
+                        self.face_mgr.reload_faces()
 
-        def from_image():
-            roll = roll_entry.get().strip()
-            if not roll:
-                status_label.configure(text="Enter roll number", text_color="#EF4444")
-                return
-            student = self.db.get_student_by_id(roll)
-            if not student:
-                status_label.configure(text="Student not found", text_color="#EF4444")
-                return
-            filepath = filedialog.askopenfilename(
-                title="Select Face Image",
-                filetypes=[("Images", "*.jpg *.jpeg *.png *.bmp")],
-                parent=dialog
-            )
-            if filepath:
-                success, msg = self.face_mgr.register_face_from_image(
-                    filepath, student["id"], student["student_id"]
+            def from_camera():
+                roll = roll_entry.get().strip()
+                if not roll:
+                    status_label.configure(text="Enter roll number", text_color="#EF4444")
+                    return
+                student = self.db.get_student_by_id(roll)
+                if not student:
+                    status_label.configure(text="Student not found", text_color="#EF4444")
+                    return
+                success, msg = self.face_mgr.register_face_from_camera(
+                    student["id"], student["student_id"]
                 )
                 color = "#22C55E" if success else "#EF4444"
                 status_label.configure(text=msg, text_color=color)
                 if success:
                     self.face_mgr.reload_faces()
 
-        def from_camera():
-            roll = roll_entry.get().strip()
-            if not roll:
-                status_label.configure(text="Enter roll number", text_color="#EF4444")
-                return
-            student = self.db.get_student_by_id(roll)
-            if not student:
-                status_label.configure(text="Student not found", text_color="#EF4444")
-                return
-            success, msg = self.face_mgr.register_face_from_camera(
-                student["id"], student["student_id"]
-            )
-            color = "#22C55E" if success else "#EF4444"
-            status_label.configure(text=msg, text_color=color)
-            if success:
-                self.face_mgr.reload_faces()
+            btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+            btn_frame.pack(pady=10)
+            ctk.CTkButton(btn_frame, text="From Image", fg_color="#3B82F6",
+                          command=from_image).pack(side="left", padx=10)
+            ctk.CTkButton(btn_frame, text="From Camera", fg_color="#8B5CF6",
+                          command=from_camera).pack(side="left", padx=10)
 
-        btn_frame = ctk.CTkFrame(container, fg_color="transparent")
-        btn_frame.pack(pady=10)
-        ctk.CTkButton(btn_frame, text="From Image", fg_color="#3B82F6",
-                      command=from_image).pack(side="left", padx=10)
-        ctk.CTkButton(btn_frame, text="From Camera", fg_color="#8B5CF6",
-                      command=from_camera).pack(side="left", padx=10)
+        dialog.after(200, _build)
 
     # ---- Teachers ----
     def _show_teachers(self):
@@ -332,55 +326,52 @@ class AdminDashboard(ctk.CTkFrame):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Add New Teacher")
         dialog.geometry("450x480")
-        dialog.transient(self)
-        dialog.grab_set()
-        dialog.after(150, lambda: dialog.focus_force())
 
-        container = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
-        container.pack(fill="both", expand=True, padx=10, pady=10)
+        def _build():
+            fields = {}
+            field_list = [
+                ("Full Name", "full_name"),
+                ("Username", "username"),
+                ("Password", "password"),
+                ("Employee ID", "employee_id"),
+                ("Department", "department"),
+                ("Email", "email"),
+                ("Phone", "phone"),
+            ]
 
-        fields = {}
-        field_list = [
-            ("Full Name", "full_name"),
-            ("Username", "username"),
-            ("Password", "password"),
-            ("Employee ID", "employee_id"),
-            ("Department", "department"),
-            ("Email", "email"),
-            ("Phone", "phone"),
-        ]
+            for label, key in field_list:
+                ctk.CTkLabel(dialog, text=label).pack(padx=20, pady=(8, 0), anchor="w")
+                entry = ctk.CTkEntry(dialog, height=35, width=350)
+                if key == "password":
+                    entry.configure(show="*")
+                entry.pack(padx=20, pady=(2, 0))
+                fields[key] = entry
 
-        for label, key in field_list:
-            ctk.CTkLabel(container, text=label).pack(padx=10, pady=(8, 0), anchor="w")
-            entry = ctk.CTkEntry(container, height=35, width=350)
-            if key == "password":
-                entry.configure(show="*")
-            entry.pack(padx=10, pady=(2, 0))
-            fields[key] = entry
+            def save():
+                data = {k: e.get().strip() for k, e in fields.items()}
+                if not all(data.get(k) for k in ["full_name", "username", "password", "employee_id", "department"]):
+                    messagebox.showerror("Error", "Fill all required fields", parent=dialog)
+                    return
+                user_id = self.db.create_user(
+                    data["username"], data["password"], data["full_name"],
+                    "teacher", data["email"], data["phone"]
+                )
+                if not user_id:
+                    messagebox.showerror("Error", "Username already exists", parent=dialog)
+                    return
+                result = self.db.add_teacher(user_id, data["employee_id"], data["department"])
+                if result:
+                    messagebox.showinfo("Success", "Teacher added successfully", parent=dialog)
+                    dialog.destroy()
+                    self._navigate("teachers")
+                else:
+                    messagebox.showerror("Error", "Employee ID already exists", parent=dialog)
 
-        def save():
-            data = {k: e.get().strip() for k, e in fields.items()}
-            if not all(data.get(k) for k in ["full_name", "username", "password", "employee_id", "department"]):
-                messagebox.showerror("Error", "Fill all required fields", parent=dialog)
-                return
-            user_id = self.db.create_user(
-                data["username"], data["password"], data["full_name"],
-                "teacher", data["email"], data["phone"]
-            )
-            if not user_id:
-                messagebox.showerror("Error", "Username already exists", parent=dialog)
-                return
-            result = self.db.add_teacher(user_id, data["employee_id"], data["department"])
-            if result:
-                messagebox.showinfo("Success", "Teacher added successfully", parent=dialog)
-                dialog.destroy()
-                self._navigate("teachers")
-            else:
-                messagebox.showerror("Error", "Employee ID already exists", parent=dialog)
+            ctk.CTkButton(dialog, text="Save Teacher", fg_color="#22C55E",
+                          height=40, command=save
+                          ).pack(padx=20, pady=15)
 
-        ctk.CTkButton(container, text="Save Teacher", fg_color="#22C55E",
-                      height=40, command=save
-                      ).pack(padx=10, pady=15)
+        dialog.after(200, _build)
 
     # ---- Subjects ----
     def _show_subjects(self):
@@ -410,94 +401,87 @@ class AdminDashboard(ctk.CTkFrame):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Add Subject")
         dialog.geometry("450x420")
-        dialog.transient(self)
-        dialog.grab_set()
 
-        dialog.after(150, lambda: dialog.focus_force())
+        def _build():
+            fields = {}
+            for label, key in [
+                ("Subject Name", "name"), ("Subject Code", "code"),
+                ("Department", "department"), ("Semester", "semester")
+            ]:
+                ctk.CTkLabel(dialog, text=label).pack(padx=20, pady=(8, 0), anchor="w")
+                entry = ctk.CTkEntry(dialog, height=35, width=350)
+                entry.pack(padx=20, pady=(2, 0))
+                fields[key] = entry
 
-        container = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
-        container.pack(fill="both", expand=True, padx=10, pady=10)
+            ctk.CTkLabel(dialog, text="Assign Teacher").pack(padx=20, pady=(8, 0), anchor="w")
+            teachers = self.db.get_all_teachers()
+            teacher_names = {f"{t['full_name']} ({t['employee_id']})": t["id"] for t in teachers}
+            teacher_var = ctk.StringVar(value="Select Teacher")
+            ctk.CTkOptionMenu(dialog, variable=teacher_var, values=list(teacher_names.keys()) or ["No teachers"],
+                              width=350).pack(padx=20, pady=(2, 0))
 
-        fields = {}
-        for label, key in [
-            ("Subject Name", "name"), ("Subject Code", "code"),
-            ("Department", "department"), ("Semester", "semester")
-        ]:
-            ctk.CTkLabel(container, text=label).pack(padx=10, pady=(8, 0), anchor="w")
-            entry = ctk.CTkEntry(container, height=35, width=350)
-            entry.pack(padx=10, pady=(2, 0))
-            fields[key] = entry
+            def save():
+                data = {k: e.get().strip() for k, e in fields.items()}
+                if not all(data.get(k) for k in ["name", "code", "department"]):
+                    messagebox.showerror("Error", "Fill required fields", parent=dialog)
+                    return
+                teacher_id = teacher_names.get(teacher_var.get())
+                semester = int(data.get("semester") or 1)
+                result = self.db.add_subject(data["name"], data["code"], teacher_id, data["department"], semester)
+                if result:
+                    messagebox.showinfo("Success", "Subject added", parent=dialog)
+                    dialog.destroy()
+                    self._navigate("subjects")
+                else:
+                    messagebox.showerror("Error", "Subject code already exists", parent=dialog)
 
-        ctk.CTkLabel(container, text="Assign Teacher").pack(padx=10, pady=(8, 0), anchor="w")
-        teachers = self.db.get_all_teachers()
-        teacher_names = {f"{t['full_name']} ({t['employee_id']})": t["id"] for t in teachers}
-        teacher_var = ctk.StringVar(value="Select Teacher")
-        ctk.CTkOptionMenu(container, variable=teacher_var, values=list(teacher_names.keys()) or ["No teachers"],
-                          width=350).pack(padx=10, pady=(2, 0))
+            ctk.CTkButton(dialog, text="Save Subject", fg_color="#22C55E", height=40,
+                          command=save).pack(padx=20, pady=15)
 
-        def save():
-            data = {k: e.get().strip() for k, e in fields.items()}
-            if not all(data.get(k) for k in ["name", "code", "department"]):
-                messagebox.showerror("Error", "Fill required fields", parent=dialog)
-                return
-            teacher_id = teacher_names.get(teacher_var.get())
-            semester = int(data.get("semester") or 1)
-            result = self.db.add_subject(data["name"], data["code"], teacher_id, data["department"], semester)
-            if result:
-                messagebox.showinfo("Success", "Subject added", parent=dialog)
-                dialog.destroy()
-                self._navigate("subjects")
-            else:
-                messagebox.showerror("Error", "Subject code already exists", parent=dialog)
-
-        ctk.CTkButton(container, text="Save Subject", fg_color="#22C55E", height=40,
-                      command=save).pack(padx=10, pady=15)
+        dialog.after(200, _build)
 
     def _enroll_dialog(self):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Enroll Students")
         dialog.geometry("450x350")
-        dialog.transient(self)
-        dialog.grab_set()
-        dialog.after(150, lambda: dialog.focus_force())
 
-        container = ctk.CTkFrame(dialog, fg_color="transparent")
-        container.pack(fill="both", expand=True, padx=10, pady=10)
+        def _build():
+            ctk.CTkLabel(dialog, text="Enroll Student in Subject",
+                         font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(20, 10))
 
-        ctk.CTkLabel(container, text="Enroll Student in Subject",
-                     font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(10, 10))
+            ctk.CTkLabel(dialog, text="Roll Number:").pack(pady=(10, 0))
+            roll_entry = ctk.CTkEntry(dialog, height=35, width=300)
+            roll_entry.pack(pady=5)
 
-        ctk.CTkLabel(container, text="Roll Number:").pack(pady=(10, 0))
-        roll_entry = ctk.CTkEntry(container, height=35, width=300)
-        roll_entry.pack(pady=5)
+            ctk.CTkLabel(dialog, text="Subject:").pack(pady=(10, 0))
+            subjects = self.db.get_all_subjects()
+            sub_map = {f"{s['name']} ({s['code']})": s["id"] for s in subjects}
+            sub_var = ctk.StringVar(value="Select Subject")
+            ctk.CTkOptionMenu(dialog, variable=sub_var, values=list(sub_map.keys()) or ["No subjects"],
+                              width=300).pack(pady=5)
 
-        ctk.CTkLabel(container, text="Subject:").pack(pady=(10, 0))
-        subjects = self.db.get_all_subjects()
-        sub_map = {f"{s['name']} ({s['code']})": s["id"] for s in subjects}
-        sub_var = ctk.StringVar(value="Select Subject")
-        ctk.CTkOptionMenu(container, variable=sub_var, values=list(sub_map.keys()) or ["No subjects"],
-                          width=300).pack(pady=5)
+            status = ctk.CTkLabel(dialog, text="", font=ctk.CTkFont(size=12))
+            status.pack(pady=5)
 
-        status = ctk.CTkLabel(container, text="", font=ctk.CTkFont(size=12))
-        status.pack(pady=5)
+            def enroll():
+                roll = roll_entry.get().strip()
+                sub_id = sub_map.get(sub_var.get())
+                if not roll or not sub_id:
+                    status.configure(text="Fill all fields", text_color="#EF4444")
+                    return
+                student = self.db.get_student_by_id(roll)
+                if not student:
+                    status.configure(text="Student not found", text_color="#EF4444")
+                    return
+                if self.db.enroll_student_in_subject(student["id"], sub_id):
+                    status.configure(text="Enrolled successfully!", text_color="#22C55E")
+                else:
+                    status.configure(text="Already enrolled", text_color="#F59E0B")
 
-        def enroll():
-            roll = roll_entry.get().strip()
-            sub_id = sub_map.get(sub_var.get())
-            if not roll or not sub_id:
-                status.configure(text="Fill all fields", text_color="#EF4444")
-                return
-            student = self.db.get_student_by_id(roll)
-            if not student:
-                status.configure(text="Student not found", text_color="#EF4444")
-                return
-            if self.db.enroll_student_in_subject(student["id"], sub_id):
-                status.configure(text="Enrolled successfully!", text_color="#22C55E")
-            else:
-                status.configure(text="Already enrolled", text_color="#F59E0B")
+            ctk.CTkButton(dialog, text="Enroll", fg_color="#3B82F6", height=40,
+                          command=enroll).pack(pady=15)
 
-        ctk.CTkButton(container, text="Enroll", fg_color="#3B82F6", height=40,
-                      command=enroll).pack(pady=15)
+        dialog.after(200, _build)
 
     # ---- Attendance ----
     def _show_attendance(self):
@@ -702,77 +686,78 @@ class AdminDashboard(ctk.CTkFrame):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Configure Twilio")
         dialog.geometry("450x350")
-        dialog.transient(self)
-        dialog.grab_set()
 
-        fields = {}
-        for idx, (label, key) in enumerate([
-            ("Account SID", "sid"), ("Auth Token", "token"), ("From Number", "from")
-        ]):
-            ctk.CTkLabel(dialog, text=label).grid(row=idx, column=0, padx=20, pady=(15, 0), sticky="w")
-            entry = ctk.CTkEntry(dialog, height=35, width=300)
-            if key == "token":
-                entry.configure(show="*")
-            entry.grid(row=idx, column=1, padx=20, pady=(15, 0))
-            fields[key] = entry
+        def _build():
+            fields = {}
+            for label, key in [
+                ("Account SID", "sid"), ("Auth Token", "token"), ("From Number", "from")
+            ]:
+                ctk.CTkLabel(dialog, text=label).pack(padx=20, pady=(15, 0), anchor="w")
+                entry = ctk.CTkEntry(dialog, height=35, width=350)
+                if key == "token":
+                    entry.configure(show="*")
+                entry.pack(padx=20, pady=(2, 0))
+                fields[key] = entry
 
-        def save():
-            self.sms_mgr.configure_twilio(
-                fields["sid"].get().strip(),
-                fields["token"].get().strip(),
-                fields["from"].get().strip()
-            )
-            messagebox.showinfo("Success", "Twilio configured", parent=dialog)
-            dialog.destroy()
-            self._navigate("sms")
+            def save():
+                self.sms_mgr.configure_twilio(
+                    fields["sid"].get().strip(),
+                    fields["token"].get().strip(),
+                    fields["from"].get().strip()
+                )
+                messagebox.showinfo("Success", "Twilio configured", parent=dialog)
+                dialog.destroy()
+                self._navigate("sms")
 
-        ctk.CTkButton(dialog, text="Save Configuration", fg_color="#22C55E",
-                      height=40, command=save).grid(row=3, column=0, columnspan=2, padx=20, pady=20)
+            ctk.CTkButton(dialog, text="Save Configuration", fg_color="#22C55E",
+                          height=40, command=save).pack(padx=20, pady=20)
+
+        dialog.after(200, _build)
 
     def _send_alerts_dialog(self):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Send Absent Alerts")
         dialog.geometry("500x400")
-        dialog.transient(self)
-        dialog.grab_set()
 
-        ctk.CTkLabel(dialog, text="Send SMS to Absentees",
-                     font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(20, 10))
+        def _build():
+            ctk.CTkLabel(dialog, text="Send SMS to Absentees",
+                         font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(20, 10))
 
-        # Select class
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT c.id, c.date, c.start_time, sub.name
-            FROM classes c JOIN subjects sub ON c.subject_id = sub.id
-            ORDER BY c.date DESC LIMIT 20
-        """)
-        classes = [dict(r) for r in cursor.fetchall()]
-        class_map = {f"{c['name']} - {c['date']} {c['start_time']}": c["id"] for c in classes}
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT c.id, c.date, c.start_time, sub.name
+                FROM classes c JOIN subjects sub ON c.subject_id = sub.id
+                ORDER BY c.date DESC LIMIT 20
+            """)
+            classes = [dict(r) for r in cursor.fetchall()]
+            class_map = {f"{c['name']} - {c['date']} {c['start_time']}": c["id"] for c in classes}
 
-        if not class_map:
-            ctk.CTkLabel(dialog, text="No classes found", text_color="gray").pack(pady=20)
-            return
-
-        class_var = ctk.StringVar(value=list(class_map.keys())[0])
-        ctk.CTkOptionMenu(dialog, variable=class_var, values=list(class_map.keys()),
-                          width=400).pack(pady=10)
-
-        result_text = ctk.CTkTextbox(dialog, width=450, height=200)
-        result_text.pack(pady=10)
-
-        def send():
-            class_id = class_map.get(class_var.get())
-            if not class_id:
+            if not class_map:
+                ctk.CTkLabel(dialog, text="No classes found", text_color="gray").pack(pady=20)
                 return
-            results, msg = self.sms_mgr.send_bulk_absent_alerts(class_id)
-            result_text.delete("1.0", "end")
-            result_text.insert("1.0", f"{msg}\n\n")
-            for r in results:
-                line = f"{'[OK]' if r['success'] else '[FAIL]'} {r['student']} ({r['phone']}): {r['message']}\n"
-                result_text.insert("end", line)
 
-        ctk.CTkButton(dialog, text="Send Alerts", fg_color="#EF4444", command=send).pack(pady=5)
+            class_var = ctk.StringVar(value=list(class_map.keys())[0])
+            ctk.CTkOptionMenu(dialog, variable=class_var, values=list(class_map.keys()),
+                              width=400).pack(pady=10)
+
+            result_text = ctk.CTkTextbox(dialog, width=450, height=200)
+            result_text.pack(pady=10)
+
+            def send():
+                class_id = class_map.get(class_var.get())
+                if not class_id:
+                    return
+                results, msg = self.sms_mgr.send_bulk_absent_alerts(class_id)
+                result_text.delete("1.0", "end")
+                result_text.insert("1.0", f"{msg}\n\n")
+                for r in results:
+                    line = f"{'[OK]' if r['success'] else '[FAIL]'} {r['student']} ({r['phone']}): {r['message']}\n"
+                    result_text.insert("end", line)
+
+            ctk.CTkButton(dialog, text="Send Alerts", fg_color="#EF4444", command=send).pack(pady=5)
+
+        dialog.after(200, _build)
 
     # ---- Settings ----
     def _show_settings(self):
