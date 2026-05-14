@@ -2081,31 +2081,74 @@ class SchoolManagerPro:
                  bg=c["dark"], fg=c["success"] if has_photo else c["danger"],
                  font=("Helvetica",9,"bold")).pack(side="left")
 
-        def _upload_face_photo():
-            path = filedialog.askopenfilename(
-                title=f"Upload Face Photo for {stu['name']}",
-                filetypes=[("Images", "*.png *.jpg *.jpeg *.bmp")])
-            if not path: return
+        def _capture_face_photo():
+            """Capture student face photo using camera."""
+            try:
+                import cv2
+            except ImportError:
+                messagebox.showerror("Error",
+                    "opencv-python required.\nRun: pip install opencv-python")
+                return
+
+            cap = cv2.VideoCapture(0)
+            if not cap.isOpened():
+                cap.release()
+                messagebox.showerror("Camera Required",
+                    "Face photo must be captured using a camera.\n"
+                    "Please connect a webcam and try again.")
+                return
+
             pd = self.data_dir / "student_photos"
             pd.mkdir(exist_ok=True)
-            ext = Path(path).suffix.lower()
-            dest = pd / f"{sid}{ext}"
-            try:
-                shutil.copyfile(path, dest)
-                stu["photo_path"] = str(dest.relative_to(self.data_dir))
-                self.save_data()
-                messagebox.showinfo("✅", f"Photo uploaded for {stu['name']}!\n"
-                                    "Face attendance will now work for this student.")
-                dlg.destroy()
-            except Exception as ex:
-                messagebox.showerror("Error", f"Photo upload failed: {ex}")
+            dest = pd / f"{sid}.jpg"
+            captured = [False]
 
-        tk.Button(face_f, text="📷 Upload Face Photo" if not has_photo else "🔄 Change Photo",
+            def do_capture():
+                ret, frame = cap.read()
+                if ret:
+                    cv2.imwrite(str(dest), frame)
+                    stu["photo_path"] = str(dest.relative_to(self.data_dir))
+                    self.save_data()
+                    captured[0] = True
+                cap.release()
+                cv2.destroyAllWindows()
+                if captured[0]:
+                    messagebox.showinfo("✅",
+                        f"Face photo captured for {stu['name']}!\n"
+                        "Face attendance will now work for this student.")
+                    dlg.destroy()
+
+            messagebox.showinfo("Camera",
+                f"Camera will open for {stu['name']}.\n\n"
+                "Position the student's face in frame.\n"
+                "Press SPACE to capture, ESC to cancel.")
+
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                cv2.putText(frame, f"Student: {stu.get('name','')}",
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
+                            (0, 255, 0), 2)
+                cv2.putText(frame, "SPACE=Capture  ESC=Cancel",
+                            (10, frame.shape[0]-20), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                            (255, 255, 255), 1)
+                cv2.imshow(f"Capture Face – {stu.get('name','')}", frame)
+                key = cv2.waitKey(1) & 0xFF
+                if key == 32:  # SPACE
+                    do_capture()
+                    return
+                elif key == 27:  # ESC
+                    cap.release()
+                    cv2.destroyAllWindows()
+                    return
+
+        tk.Button(face_f, text="📷 Capture Face Photo" if not has_photo else "🔄 Re-capture Photo",
                   bg="#7c3aed" if not has_photo else c["primary"],
                   fg="white", font=("Helvetica",9),
-                  command=_upload_face_photo).pack(side="left", padx=8)
+                  command=_capture_face_photo).pack(side="left", padx=8)
         if not has_photo:
-            tk.Label(face_f, text="(Required for Face Attendance)",
+            tk.Label(face_f, text="(Camera required – for Face Attendance)",
                      bg=c["dark"], fg=c["warning"],
                      font=("Helvetica",8)).pack(side="left")
 
@@ -3215,65 +3258,11 @@ class SchoolManagerPro:
         win.after(200, scan_frame)
 
     def _face_att_from_image(self, cls, date_str, recognizer, label_to_stu, students):
-        """Face attendance from uploaded image (fallback when no webcam)."""
-        c = self.colors
-        win = tk.Toplevel(self.root)
-        win.title(f"🤖 Face Attendance (Image) – Class {cls}")
-        win.geometry("600x500")
-        win.configure(bg="#0f172a")
-
-        tk.Label(win, text="🤖  Face Attendance – Upload Photos",
-                 font=("Helvetica",14,"bold"), bg="#0f172a", fg="white").pack(pady=12)
-        tk.Label(win,
-                 text="No webcam detected. Upload student face photos to mark attendance.",
-                 bg="#0f172a", fg="#a78bfa", font=("Helvetica",10)).pack(pady=4)
-
-        log_text = tk.Text(win, bg="#1e293b", fg="white",
-                           font=("Helvetica",10), height=15, state="disabled")
-        log_text.pack(fill="both", expand=True, padx=20, pady=8)
-
-        def log(msg):
-            log_text.config(state="normal")
-            log_text.insert("end", msg + "\n")
-            log_text.see("end")
-            log_text.config(state="disabled")
-
-        face_cascade = recognizer._face_casc
-
-        def upload_and_match():
-            paths = filedialog.askopenfilenames(
-                title="Select Face Photos",
-                filetypes=[("Images", "*.png *.jpg *.jpeg *.bmp")])
-            if not paths: return
-            for p in paths:
-                img = cv2.imread(p)
-                if img is None:
-                    log(f"❌ Cannot read: {os.path.basename(p)}"); continue
-                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(40,40))
-                if len(faces) == 0:
-                    log(f"⚠️  No face found in: {os.path.basename(p)}"); continue
-                x, y, w, h = max(faces, key=lambda r: r[2]*r[3])
-                face_roi = gray[y:y+h, x:x+w]
-                label, dist, thresh, _ = recognizer.predict(face_roi)
-                if dist < thresh and label in label_to_stu:
-                    stu = label_to_stu[label]
-                    stu.setdefault("attendance", {})[date_str] = "Present"
-                    self.save_data()
-                    log(f"✅ {stu.get('name','?')} – Present (confidence: {int((1-dist/thresh)*100)}%)")
-                else:
-                    log(f"❌ Face not recognized in: {os.path.basename(p)}")
-
-        btn_row = tk.Frame(win, bg="#0f172a")
-        btn_row.pack(pady=10)
-        tk.Button(btn_row, text="📂 Upload Face Photos",
-                  bg="#7c3aed", fg="white",
-                  font=("Helvetica",11,"bold"), padx=16, pady=8,
-                  command=upload_and_match).pack(side="left", padx=6)
-        tk.Button(btn_row, text="✖ Close",
-                  bg=c["danger"], fg="white",
-                  font=("Helvetica",11,"bold"), padx=16, pady=8,
-                  command=win.destroy).pack(side="left", padx=6)
+        """Camera is required for face attendance – show error."""
+        messagebox.showerror("Camera Required",
+            "Face attendance requires a camera.\n"
+            "Please connect a webcam and try again.\n\n"
+            "Face data can only be captured using a camera.")
 
     # ════════════════════════════════════════════════════════════════════════
     #  QR CODE ATTENDANCE (Dynamic QR – refreshes every 30 seconds)
@@ -3343,7 +3332,7 @@ class SchoolManagerPro:
         return email.lower().endswith(f"@{trusted_domain.lower()}")
 
     def _generate_qr_for_class(self, class_name):
-        """Generate Dynamic QR codes for class – open live window with 30s refresh."""
+        """Generate Dynamic QR code for a specific selected student (one-by-one)."""
         if not class_name:
             messagebox.showerror("Error","Select a class first"); return
         if not HAS_QR:
@@ -3353,7 +3342,7 @@ class SchoolManagerPro:
             messagebox.showerror("Error",
                 "Pillow library not installed.\nRun: pip install pillow"); return
 
-        import base64, time as _time
+        import time as _time
         students = [s for s in self.students if s.get("class") == class_name]
         if not students:
             messagebox.showinfo("Info",f"No students in class {class_name}"); return
@@ -3363,68 +3352,132 @@ class SchoolManagerPro:
 
         c = self.colors
         prev = tk.Toplevel(self.root)
-        prev.title(f"🔄 Dynamic QR – Class {class_name}")
-        prev.geometry("750x600")
+        prev.title(f"📱 QR Code – Class {class_name}")
+        prev.geometry("550x650")
         prev.configure(bg=c["dark"])
+        prev.transient(self.root)
 
         tk.Label(prev,
-                 text=f"🔄  Dynamic QR Codes – Class {class_name}",
+                 text=f"📱  Generate QR Code – Class {class_name}",
                  font=("Helvetica",14,"bold"), bg=c["dark"],
                  fg=c["success"]).pack(pady=(12,2))
         tk.Label(prev,
-                 text="QR codes refresh every 30 seconds with HMAC tokens",
+                 text="Select a student to generate their individual QR code",
                  bg=c["dark"], fg=c["subtext"],
-                 font=("Helvetica",9)).pack()
+                 font=("Helvetica",10)).pack(pady=(0,8))
 
-        timer_var = tk.StringVar(value="⏱ Next refresh in: 30s")
-        timer_lbl = tk.Label(prev, textvariable=timer_var,
-                             font=("Helvetica",11,"bold"),
-                             bg=c["dark"], fg="#fbbf24")
-        timer_lbl.pack(pady=4)
+        # Student selector
+        sel_frame = tk.Frame(prev, bg=c["card_bg"], padx=15, pady=10)
+        sel_frame.pack(fill="x", padx=20, pady=5)
+        tk.Label(sel_frame, text="Select Student:", bg=c["card_bg"], fg=c["subtext"],
+                 font=("Helvetica",11,"bold")).pack(side="left")
 
-        grid = tk.Frame(prev, bg=c["dark"])
-        grid.pack(fill="both", expand=True, padx=20, pady=10)
+        stu_names = [f"{s.get('name','')} ({s.get('admissionNo','')})" for s in students]
+        stu_var = tk.StringVar()
+        stu_cb = ttk.Combobox(sel_frame, textvariable=stu_var,
+                               values=stu_names, state="readonly", width=30)
+        stu_cb.pack(side="left", padx=10)
+        if stu_names:
+            stu_cb.current(0)
+
+        # QR display area
+        qr_frame = tk.Frame(prev, bg=c["dark"])
+        qr_frame.pack(fill="both", expand=True, padx=20, pady=5)
+
+        qr_label = tk.Label(qr_frame, bg=c["dark"])
+        qr_label.pack(pady=10)
+
+        name_var = tk.StringVar(value="")
+        tk.Label(qr_frame, textvariable=name_var, font=("Helvetica",13,"bold"),
+                 bg=c["dark"], fg="white").pack()
+
+        timer_var = tk.StringVar(value="")
+        tk.Label(qr_frame, textvariable=timer_var, font=("Helvetica",11,"bold"),
+                 bg=c["dark"], fg="#fbbf24").pack(pady=4)
+
+        info_var = tk.StringVar(value="")
+        tk.Label(qr_frame, textvariable=info_var, font=("Helvetica",9),
+                 bg=c["dark"], fg=c["subtext"]).pack()
+
         prev._imgs = []
         prev._running = True
+        prev._current_stu = [None]
+
+        def _generate_for_student(*args):
+            idx = stu_cb.current()
+            if idx < 0 or idx >= len(students):
+                return
+            stu = students[idx]
+            prev._current_stu[0] = stu
+            _refresh_qr()
 
         def _refresh_qr():
             if not prev._running or not prev.winfo_exists():
                 return
-            for w in grid.winfo_children():
-                w.destroy()
-            prev._imgs = []
+            stu = prev._current_stu[0]
+            if not stu:
+                return
 
             host_id = self._get_host_port()
-            for i, stu in enumerate(students[:12]):
-                token = self._qr_token(stu["id"])
-                payload = json.dumps({"id": stu["id"], "token": token, "host": host_id})
-                img = qrcode.make(payload)
-                itk = ImageTk.PhotoImage(img.resize((90, 90), Image.LANCZOS))
-                prev._imgs.append(itk)
-                col_f = tk.Frame(grid, bg=c["dark_light"], padx=5, pady=5)
-                col_f.grid(row=i//6, column=i%6, padx=4, pady=4)
-                tk.Label(col_f, image=itk, bg=c["dark_light"]).pack()
-                tk.Label(col_f, text=stu.get("name","")[:12],
-                         bg=c["dark_light"], fg="white",
-                         font=("Helvetica",7)).pack()
+            token = self._qr_token(stu["id"])
+            payload = json.dumps({"id": stu["id"], "token": token, "host": host_id})
+            img = qrcode.make(payload)
+            qr_big = img.resize((300, 300), Image.LANCZOS)
+            itk = ImageTk.PhotoImage(qr_big)
+            prev._imgs = [itk]
+            qr_label.configure(image=itk)
+            qr_label._img = itk
 
-                path = qr_dir / f"{stu['id']}.png"
-                img.save(str(path))
-                stu["qr_code"] = token
+            name_var.set(f"📋 {stu.get('name','')}")
+            info_var.set(f"Adm No: {stu.get('admissionNo','')}  |  "
+                         f"Class: {stu.get('class','')}  |  "
+                         f"Token refreshes every 30s")
+
+            # Save QR image
+            path = qr_dir / f"{stu['id']}.png"
+            img.save(str(path))
+            stu["qr_code"] = token
             self.save_data()
 
         def _tick():
             if not prev._running or not prev.winfo_exists():
                 return
-            import time as _t
-            remaining = 30 - (int(_t.time()) % 30)
-            timer_var.set(f"⏱ Next refresh in: {remaining}s")
+            remaining = 30 - (int(_time.time()) % 30)
+            timer_var.set(f"⏱ Refreshes in: {remaining}s")
             if remaining == 30:
                 _refresh_qr()
             prev.after(1000, _tick)
 
-        _refresh_qr()
+        stu_cb.bind("<<ComboboxSelected>>", _generate_for_student)
+
+        # Auto-generate for first student
+        if students:
+            prev._current_stu[0] = students[0]
+            _refresh_qr()
         prev.after(1000, _tick)
+
+        # Navigation buttons
+        nav_frame = tk.Frame(prev, bg=c["dark"])
+        nav_frame.pack(pady=5)
+
+        def _prev_student():
+            idx = stu_cb.current()
+            if idx > 0:
+                stu_cb.current(idx - 1)
+                _generate_for_student()
+
+        def _next_student():
+            idx = stu_cb.current()
+            if idx < len(students) - 1:
+                stu_cb.current(idx + 1)
+                _generate_for_student()
+
+        tk.Button(nav_frame, text="◀ Previous", bg=c["primary"], fg="white",
+                  font=("Helvetica",10,"bold"), padx=15, pady=6,
+                  command=_prev_student).pack(side="left", padx=5)
+        tk.Button(nav_frame, text="Next ▶", bg=c["primary"], fg="white",
+                  font=("Helvetica",10,"bold"), padx=15, pady=6,
+                  command=_next_student).pack(side="left", padx=5)
 
         def _on_close():
             prev._running = False
@@ -3443,14 +3496,14 @@ class SchoolManagerPro:
 
         btn_row = tk.Frame(prev, bg=c["dark"])
         btn_row.pack(pady=8)
-        tk.Button(btn_row, text="📂 Open QR Folder", bg=c["primary"], fg="white",
-                  command=open_folder).pack(side="left", padx=4)
+        tk.Button(btn_row, text="📂 Open QR Folder", bg=c["success"], fg="white",
+                  font=("Helvetica",10), command=open_folder).pack(side="left", padx=4)
         tk.Button(btn_row, text="✖ Close", bg=c["danger"], fg="white",
-                  command=_on_close).pack(side="left", padx=4)
+                  font=("Helvetica",10), command=_on_close).pack(side="left", padx=4)
         prev.protocol("WM_DELETE_WINDOW", _on_close)
 
     def _scan_qr_attendance(self, date_str):
-        """Live webcam QR scanner to mark attendance."""
+        """Live webcam QR scanner with face verification to mark attendance."""
         try:
             import cv2
             import base64
@@ -3465,37 +3518,75 @@ class SchoolManagerPro:
 
         c = self.colors
 
+        # Pre-load face recognizer for face verification during QR scan
+        face_recognizer = None
+        label_to_stu = {}
+        if HAS_FACE:
+            recognizer = _FaceRecognizer()
+            face_cascade = recognizer._face_casc
+            train_imgs = []
+            train_lbls = []
+            for label, stu in enumerate(self.students):
+                photo = stu.get("photo_path", "")
+                if photo:
+                    full_path = str(self.data_dir / photo) if not os.path.isabs(photo) else photo
+                else:
+                    full_path = ""
+                if not full_path or not os.path.isfile(full_path):
+                    continue
+                img = cv2.imread(full_path, cv2.IMREAD_GRAYSCALE)
+                if img is None:
+                    continue
+                faces = face_cascade.detectMultiScale(img, 1.1, 4, minSize=(50,50))
+                if len(faces):
+                    x, y, w, h = faces[0]
+                    roi = img[y:y+h, x:x+w]
+                else:
+                    roi = img
+                train_imgs.append(roi)
+                train_lbls.append(label)
+                label_to_stu[label] = stu
+            if train_imgs:
+                recognizer.train(train_imgs, _np.array(train_lbls))
+                face_recognizer = recognizer
+
         # Status window
         status_win = tk.Toplevel(self.root)
-        status_win.title("📷 QR Code Attendance Scanner")
-        status_win.geometry("420x380")
+        status_win.title("📷 QR + Face Attendance Scanner")
+        status_win.geometry("480x450")
         status_win.configure(bg=c["dark"])
 
-        tk.Label(status_win, text="📷  QR Code Attendance Scanner",
+        tk.Label(status_win, text="📷  QR + Face Attendance Scanner",
                  font=("Helvetica",14,"bold"), bg=c["dark"],
                  fg="white").pack(pady=12)
         tk.Label(status_win, text=f"Date: {date_str}",
                  bg=c["dark"], fg=c["subtext"]).pack()
         tk.Label(status_win,
-                 text="Hold student QR code in front of webcam.\nPress ESC in the camera window to stop.",
+                 text="1. Show QR code to camera\n2. Then show student's face for verification",
                  bg=c["dark"], fg=c["gray"],
                  font=("Helvetica",10), justify="center").pack(pady=8)
 
         log_frame = tk.Frame(status_win, bg=c["dark_light"], padx=10, pady=5)
         log_frame.pack(fill="both", expand=True, padx=20)
         log_text = tk.Text(log_frame, bg=c["dark_light"], fg="white",
-                            font=("Helvetica",9), height=10, state="disabled")
+                            font=("Helvetica",9), height=12, state="disabled")
         log_text.pack(fill="both", expand=True)
 
         marked_today = set()
+        pending_face_verify = [None]  # student awaiting face verification
+        face_verify_frames = [0]
 
-        def log(msg, color="white"):
+        def log(msg):
             log_text.config(state="normal")
             log_text.insert("end", msg + "\n")
             log_text.see("end")
             log_text.config(state="disabled")
 
         log(f"🟢 Scanner started for {date_str}")
+        if face_recognizer:
+            log(f"🤖 Face verification enabled ({len(train_imgs)} faces loaded)")
+        else:
+            log("⚠️  No student face photos found – QR-only mode")
         log("Waiting for QR code scan...")
 
         stop_flag = [False]
@@ -3509,8 +3600,8 @@ class SchoolManagerPro:
         btn_frame = tk.Frame(status_win, bg=c["dark"])
         btn_frame.pack(pady=10)
 
-        def _process_qr_data(data):
-            """Process decoded QR data string and mark attendance."""
+        def _process_qr_data(data, frame=None):
+            """Process decoded QR data string – then require face verification."""
             if not data or data in marked_today:
                 return
             try:
@@ -3521,6 +3612,8 @@ class SchoolManagerPro:
                 stu = next((s for s in self.students if s["id"]==stu_id), None)
                 if not stu:
                     log(f"⚠️  Unknown student ID in QR"); return
+                if stu_id in marked_today:
+                    return
                 # Verify network/WiFi
                 if not self._verify_qr_network(qr_host):
                     log(f"⚠️  {stu['name']} – QR from untrusted network!"); return
@@ -3528,27 +3621,52 @@ class SchoolManagerPro:
                 if not self._verify_student_email(stu):
                     log(f"⚠️  {stu['name']} – No trusted email set!"); return
                 # Verify token
-                if self._verify_qr_token(stu_id, token):
+                if not self._verify_qr_token(stu_id, token):
+                    log(f"⚠️  {stu['name']} – QR expired! Token invalid"); return
+
+                # QR is valid — now require face verification
+                if face_recognizer:
+                    log(f"🔍 {stu['name']} – QR verified! Now show face to camera...")
+                    pending_face_verify[0] = stu
+                    face_verify_frames[0] = 0
+                else:
+                    # No face data — mark directly
                     stu.setdefault("attendance",{})[date_str] = "Present"
                     self.save_data()
-                    marked_today.add(data)
-                    log(f"✅ {stu['name']} – Present (token + network verified)")
-                else:
-                    log(f"⚠️  {stu['name']} – QR expired! Token invalid")
+                    marked_today.add(stu_id)
+                    log(f"✅ {stu['name']} – Present (QR verified, no face data)")
             except (json.JSONDecodeError, KeyError):
                 try:
                     import base64 as b64
                     stu_id = b64.urlsafe_b64decode(data).decode()
                     stu = next((s for s in self.students if s["id"]==stu_id), None)
-                    if stu:
+                    if stu and stu_id not in marked_today:
                         stu.setdefault("attendance",{})[date_str] = "Present"
                         self.save_data()
-                        marked_today.add(data)
+                        marked_today.add(stu_id)
                         log(f"✅ {stu['name']} – Present (legacy QR)")
-                    else:
+                    elif not stu:
                         log(f"⚠️  Unknown QR data")
                 except Exception as ex:
                     log(f"❌ Error: {ex}")
+
+        def _verify_face_in_frame(frame, expected_stu):
+            """Try to verify face in current frame matches expected student."""
+            if not face_recognizer:
+                return False
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            face_cascade = face_recognizer._face_casc
+            faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(60,60))
+            if len(faces) == 0:
+                return False
+            x, y, w, h = max(faces, key=lambda r: r[2]*r[3])
+            roi = gray[y:y+h, x:x+w]
+            lbl, dist, sim_pct, thresh, _ = face_recognizer.is_match(roi)
+            if lbl != -1 and lbl in label_to_stu:
+                matched_stu = label_to_stu[lbl]
+                if matched_stu["id"] == expected_stu["id"]:
+                    return True
+            return False
 
         def scan_from_image():
             """Scan QR from an image file instead of webcam."""
@@ -3577,7 +3695,6 @@ class SchoolManagerPro:
         if not cap.isOpened():
             cap.release()
             log("⚠️  Webcam not available – use 'Scan from Image File' button")
-            log("💡  Tip: install pyzbar for better scanning: pip install pyzbar")
             return
 
         def _scan_frame():
@@ -3588,11 +3705,33 @@ class SchoolManagerPro:
             if not ret:
                 self.root.after(100, _scan_frame); return
 
-            decoded_list = _decode_qr(frame)
-            for data in decoded_list:
-                _process_qr_data(data)
+            # If waiting for face verification
+            if pending_face_verify[0]:
+                stu = pending_face_verify[0]
+                face_verify_frames[0] += 1
+                if _verify_face_in_frame(frame, stu):
+                    stu.setdefault("attendance",{})[date_str] = "Present"
+                    self.save_data()
+                    marked_today.add(stu["id"])
+                    log(f"✅ {stu['name']} – Present (QR + Face verified!)")
+                    pending_face_verify[0] = None
+                    face_verify_frames[0] = 0
+                elif face_verify_frames[0] > 150:  # ~5 seconds timeout
+                    log(f"❌ {stu['name']} – Face verification timed out! Try again.")
+                    pending_face_verify[0] = None
+                    face_verify_frames[0] = 0
 
-            cv2.imshow(f"QR Scanner – {date_str} (ESC to stop)", frame)
+                # Draw face verification overlay
+                cv2.putText(frame, f"FACE VERIFY: {stu.get('name','')}",
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                            (0, 255, 255), 2)
+            else:
+                # Normal QR scanning mode
+                decoded_list = _decode_qr(frame)
+                for data in decoded_list:
+                    _process_qr_data(data, frame)
+
+            cv2.imshow(f"QR + Face Scanner – {date_str} (ESC to stop)", frame)
             key = cv2.waitKey(1) & 0xFF
             if key == 27:   # ESC
                 do_stop(); return
