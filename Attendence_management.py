@@ -122,32 +122,60 @@ def _auto_install_face_libs():
 
 
 def _decode_qr(image):
-    """Decode QR code from image using pyzbar (preferred) or cv2 fallback.
+    """Decode QR code from image using multiple methods.
     Returns list of decoded string data values."""
     results = []
+    try:
+        _cv2, _np = _ensure_face_libs()
+        if _cv2 is None:
+            import cv2 as _cv2
+            import numpy as _np
+    except Exception:
+        import cv2 as _cv2
+        import numpy as _np
+
+    # Preprocess image for better QR detection
+    if len(image.shape) == 3:
+        gray = _cv2.cvtColor(image, _cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image.copy()
+
+    # Multiple preprocessing attempts for robust detection
+    frames_to_try = [
+        image,                                              # original
+        gray,                                               # grayscale
+        _cv2.equalizeHist(gray),                           # histogram equalized
+        _cv2.threshold(gray, 0, 255, _cv2.THRESH_OTSU)[1], # Otsu threshold
+    ]
+    # Add sharpened version
+    kernel = _np.array([[-1,-1,-1],[-1,9,-1],[-1,-1,-1]])
+    sharpened = _cv2.filter2D(gray, -1, kernel)
+    frames_to_try.append(sharpened)
+
     # Try pyzbar first (more reliable)
     if HAS_PYZBAR:
+        for frame in frames_to_try:
+            try:
+                decoded = _pyzbar_mod.decode(frame)
+                for obj in decoded:
+                    data = obj.data.decode('utf-8', errors='ignore')
+                    if data and data not in results:
+                        results.append(data)
+                if results:
+                    return results
+            except Exception:
+                pass
+
+    # Fallback to cv2.QRCodeDetector
+    det = _cv2.QRCodeDetector()
+    for frame in frames_to_try:
         try:
-            decoded = _pyzbar_mod.decode(image)
-            for obj in decoded:
-                data = obj.data.decode('utf-8', errors='ignore')
-                if data:
-                    results.append(data)
-            if results:
+            data, pts, _ = det.detectAndDecode(frame)
+            if data and data not in results:
+                results.append(data)
                 return results
         except Exception:
             pass
-    # Fallback to cv2.QRCodeDetector
-    try:
-        _cv2, _ = _ensure_face_libs()
-        if _cv2 is None:
-            import cv2 as _cv2
-        det = _cv2.QRCodeDetector()
-        data, pts, _ = det.detectAndDecode(image)
-        if data:
-            results.append(data)
-    except Exception:
-        pass
     return results
 
 
@@ -3349,16 +3377,17 @@ class SchoolManagerPro:
         import hmac, time
         time_slot = str(int(time.time()) // 30)
         msg = f"{student_id}:{time_slot}".encode()
-        return hmac.new(secret_key.encode(), msg, hashlib.sha256).hexdigest()[:16]
+        return hmac.new(secret_key.encode(), msg, hashlib.sha256).hexdigest()[:8]
 
     @staticmethod
     def _verify_qr_token(student_id, token, secret_key="school_manager_secret"):
         """Verify token matches current or previous 30-second window."""
         import hmac, time
+        token_len = len(token) if token else 8
         for offset in [0, -1]:
             time_slot = str(int(time.time()) // 30 + offset)
             msg = f"{student_id}:{time_slot}".encode()
-            expected = hmac.new(secret_key.encode(), msg, hashlib.sha256).hexdigest()[:16]
+            expected = hmac.new(secret_key.encode(), msg, hashlib.sha256).hexdigest()[:token_len]
             if token == expected:
                 return True
         return False
@@ -3491,9 +3520,20 @@ class SchoolManagerPro:
 
             host_id = self._get_host_port()
             token = self._qr_token(stu["id"])
-            payload = json.dumps({"id": stu["id"], "token": token, "host": host_id})
-            img = qrcode.make(payload)
-            qr_big = img.resize((300, 300), Image.LANCZOS)
+            # Compact payload for easier webcam scanning
+            payload = json.dumps({"i": stu["id"], "t": token, "h": host_id},
+                                 separators=(',',':'))
+            # Generate QR with high error correction for webcam readability
+            qr_obj = qrcode.QRCode(
+                version=None,
+                error_correction=qrcode.constants.ERROR_CORRECT_H,
+                box_size=12,
+                border=6,
+            )
+            qr_obj.add_data(payload)
+            qr_obj.make(fit=True)
+            img = qr_obj.make_image(fill_color="black", back_color="white")
+            qr_big = img.resize((350, 350), Image.LANCZOS)
             itk = ImageTk.PhotoImage(qr_big)
             prev._imgs = [itk]
             qr_label.configure(image=itk)
@@ -3681,9 +3721,10 @@ class SchoolManagerPro:
                 return
             try:
                 qr_data = json.loads(data)
-                stu_id = qr_data.get("id", "")
-                token = qr_data.get("token", "")
-                qr_host = qr_data.get("host", "")
+                # Support both compact (i,t,h) and full (id,token,host) keys
+                stu_id = qr_data.get("i", qr_data.get("id", ""))
+                token = qr_data.get("t", qr_data.get("token", ""))
+                qr_host = qr_data.get("h", qr_data.get("host", ""))
                 stu = next((s for s in self.students if s["id"]==stu_id), None)
                 if not stu:
                     log(f"⚠️  Unknown student ID in QR"); return
@@ -3855,13 +3896,21 @@ class SchoolManagerPro:
         def _refresh():
             if not prev._running or not prev.winfo_exists(): return
             token = self._qr_token(stu["id"])
-            payload = json.dumps({"id": stu["id"], "token": token})
-            img = qrcode.make(payload).resize((260, 260), Image.LANCZOS)
-            itk = ImageTk.PhotoImage(img)
+            host_id = self._get_host_port()
+            payload = json.dumps({"i": stu["id"], "t": token, "h": host_id},
+                                 separators=(',',':'))
+            qr_obj = qrcode.QRCode(
+                error_correction=qrcode.constants.ERROR_CORRECT_H,
+                box_size=12, border=6)
+            qr_obj.add_data(payload)
+            qr_obj.make(fit=True)
+            img = qr_obj.make_image(fill_color="black", back_color="white")
+            img_resized = img.resize((300, 300), Image.LANCZOS)
+            itk = ImageTk.PhotoImage(img_resized)
             prev._img = itk
             qr_lbl.configure(image=itk)
             path = qr_dir / f"{stu['id']}.png"
-            qrcode.make(payload).save(str(path))
+            img.save(str(path))
 
         def _tick():
             if not prev._running or not prev.winfo_exists(): return
