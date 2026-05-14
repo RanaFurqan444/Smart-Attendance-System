@@ -167,7 +167,7 @@ class _FaceRecognizer:
     """
 
     TARGET_SIZE   = 128
-    SAFETY_MARGIN = 1.5   # personal_threshold = max_aug_self_dist × 1.5
+    SAFETY_MARGIN = 2.0   # personal_threshold = max_aug_self_dist × 2.0 (relaxed for low-quality cameras)
 
     # Cascade classifiers — loaded ONCE, reused forever
     _face_casc  = None
@@ -315,18 +315,22 @@ class _FaceRecognizer:
 
     @classmethod
     def _augment(cls, gray_roi):
-        """9 augmented versions: brightness ±25, noise, blur (training only)."""
+        """13 augmented versions: brightness, noise, blur, contrast (training only)."""
         _cv2, _np = _ensure_face_libs()
         face = cls._preprocess(gray_roi)
         out  = [face]
-        for bv in [-25, -12, 12, 25]:
+        for bv in [-30, -15, 15, 30]:
             out.append(_np.clip(face.astype(_np.int16) + bv, 0, 255).astype(_np.uint8))
-        for sigma in [4, 8]:
+        for sigma in [5, 10, 15]:
             noise = _np.random.normal(0, sigma, face.shape).astype(_np.int16)
             out.append(_np.clip(face.astype(_np.int16) + noise, 0, 255).astype(_np.uint8))
         out.append(_cv2.GaussianBlur(face, (3,3), 0))
         out.append(_cv2.GaussianBlur(face, (5,5), 0))
-        return out  # 9 total
+        out.append(_cv2.GaussianBlur(face, (7,7), 0))
+        # Contrast variation (simulates low-quality webcam)
+        low_contrast = _np.clip(face.astype(_np.float32) * 0.7 + 38, 0, 255).astype(_np.uint8)
+        out.append(low_contrast)
+        return out  # 13 total
 
     # ── Public API ─────────────────────────────────────────────────────────
     def train(self, images, labels):
@@ -343,7 +347,7 @@ class _FaceRecognizer:
             if fn > 0: master /= fn
             dists  = [float(_np.linalg.norm(f - master)) for f in feats]
             thresh = max(dists) * self.SAFETY_MARGIN
-            thresh = max(0.12, min(thresh, 0.30))   # hard cap
+            thresh = max(0.15, min(thresh, 0.45))   # relaxed for low-quality cameras
             self._db.append((lbl, master, thresh))
 
     def predict(self, gray_roi):
@@ -2965,10 +2969,8 @@ class SchoolManagerPro:
     # ════════════════════════════════════════════════════════════════════════
     def _face_att_scan(self, cls, date_str):
         """
-        Open webcam and mark attendance automatically using face recognition.
-        Only works if student photos have been uploaded when adding the student.
-        Uses OpenCV LBPH (Local Binary Pattern Histogram) – no extra install needed
-        beyond opencv-contrib-python which the app already uses for face login.
+        Face attendance: select student one-by-one, verify face via camera.
+        Uses OpenCV LBPH with enhanced preprocessing for low-quality cameras.
         """
         if not HAS_FACE:
             _cv2a, _npa = _ensure_face_libs()
@@ -2999,6 +3001,7 @@ class SchoolManagerPro:
 
         # Build training set from student photos
         train_imgs, train_labels, label_to_stu = [], [], {}
+        stu_to_label = {}
         skipped = []
 
         for label, stu in enumerate(students):
@@ -3014,30 +3017,34 @@ class SchoolManagerPro:
             if img_gray is None:
                 skipped.append(stu.get("name", "?"))
                 continue
-            faces = face_cascade.detectMultiScale(img_gray, 1.1, 5, minSize=(40, 40))
+            # Enhanced preprocessing for low-quality cameras
+            clahe = _cv2a.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            img_gray = clahe.apply(img_gray)
+            img_gray = _cv2a.GaussianBlur(img_gray, (3, 3), 0)
+            faces = face_cascade.detectMultiScale(img_gray, 1.05, 3, minSize=(30, 30))
             if len(faces) == 0:
-                # fallback – treat whole image as face region
                 face_roi = cv2.resize(img_gray, (200, 200))
             else:
-                x, y, w, h = faces[0]
+                x, y, w, h = max(faces, key=lambda r: r[2]*r[3])
                 face_roi = cv2.resize(img_gray[y:y+h, x:x+w], (200, 200))
             train_imgs.append(face_roi)
             train_labels.append(label)
             label_to_stu[label] = stu
+            stu_to_label[stu["id"]] = label
 
         if not train_imgs:
             messagebox.showerror(
                 "No Face Photos Found",
-                f"Class {cls} – No student has a face photo uploaded.\n\n"
+                f"Class {cls} – No student has a face photo captured.\n\n"
                 "How to fix:\n"
                 "1. Go to Students → Double-click a student\n"
-                "2. Click '📷 Upload Face Photo' button\n"
-                "3. Upload a clear face photo for each student\n\n"
+                "2. Click '📷 Capture Face Photo' button\n"
+                "3. Capture a clear face photo via camera for each student\n\n"
                 "Face attendance requires student photos to work."
             )
             return
 
-        # Train LBPH recognizer
+        # Train recognizer
         recognizer = _FaceRecognizer()
         recognizer.train(train_imgs, np.array(train_labels))
 
@@ -3049,37 +3056,57 @@ class SchoolManagerPro:
             return
 
         c = self.colors
-        # Track which students were already marked in this session
-        marked_this_session = {}   # stu_id → True
-
-        # Preload existing attendance for today
+        marked_this_session = {}
         for stu in students:
-            existing = stu.get("attendance", {}).get(date_str, "Absent")
-            if existing == "Present":
+            if stu.get("attendance", {}).get(date_str) == "Present":
                 marked_this_session[stu["id"]] = True
 
         # ── Build popup window ─────────────────────────────────────────────
         win = tk.Toplevel(self.root)
         win.title(f"🤖 Face Attendance – Class {cls} – {date_str}")
-        win.geometry("900x640")
+        win.geometry("900x680")
         win.configure(bg="#0f172a")
         win.resizable(True, True)
         win.transient(self.root)
-        win.grab_set()
 
         # Header
         hdr = tk.Frame(win, bg="#7c3aed", padx=20, pady=12)
         hdr.pack(fill="x")
-        tk.Label(hdr, text="🤖  Face Recognition Attendance",
+        tk.Label(hdr, text="🤖  Face Recognition Attendance (One-by-One)",
                  font=("Helvetica", 16, "bold"), bg="#7c3aed", fg="white").pack(anchor="w")
-        info_parts = []
-        if skipped:
-            info_parts.append(f"⚠️ {len(skipped)} students have no photo: {', '.join(skipped[:4])}"
-                              + ("..." if len(skipped) > 4 else ""))
-        info_parts.append(f"✅ {len(train_imgs)} student faces loaded | Look at camera")
-        tk.Label(hdr, text="   ".join(info_parts),
-                 font=("Helvetica", 9), bg="#7c3aed", fg="#ddd6fe",
-                 wraplength=860, justify="left").pack(anchor="w")
+        tk.Label(hdr, text=f"Select a student → Verify face → Mark attendance | {len(train_imgs)} faces loaded",
+                 font=("Helvetica", 9), bg="#7c3aed", fg="#ddd6fe").pack(anchor="w")
+
+        # Student selector bar
+        sel_bar = tk.Frame(win, bg="#1e293b", padx=15, pady=10)
+        sel_bar.pack(fill="x", padx=10, pady=(5,0))
+
+        tk.Label(sel_bar, text="Select Student:", bg="#1e293b", fg="white",
+                 font=("Helvetica", 11, "bold")).pack(side="left")
+
+        stu_names = [f"{s.get('name','')} ({s.get('admissionNo','')})" for s in students]
+        stu_var = tk.StringVar()
+        stu_cb = ttk.Combobox(sel_bar, textvariable=stu_var,
+                               values=stu_names, state="readonly", width=30)
+        stu_cb.pack(side="left", padx=10)
+        if stu_names:
+            stu_cb.current(0)
+
+        def _prev_stu():
+            idx = stu_cb.current()
+            if idx > 0:
+                stu_cb.current(idx - 1)
+        def _next_stu():
+            idx = stu_cb.current()
+            if idx < len(students) - 1:
+                stu_cb.current(idx + 1)
+
+        tk.Button(sel_bar, text="◀", bg="#6366f1", fg="white",
+                  font=("Helvetica",10,"bold"), padx=8,
+                  command=_prev_stu).pack(side="left", padx=2)
+        tk.Button(sel_bar, text="▶", bg="#6366f1", fg="white",
+                  font=("Helvetica",10,"bold"), padx=8,
+                  command=_next_stu).pack(side="left", padx=2)
 
         body = tk.Frame(win, bg="#0f172a")
         body.pack(fill="both", expand=True)
@@ -3091,12 +3118,12 @@ class SchoolManagerPro:
         cam_lbl = tk.Label(left, bg="#0f172a")
         cam_lbl.pack()
 
-        status_var = tk.StringVar(value="🔍 Camera scanning…")
-        tk.Label(left, textvariable=status_var, font=("Helvetica", 11, "bold"),
-                 bg="#0f172a", fg="#a78bfa", wraplength=560).pack(pady=4)
+        status_var = tk.StringVar(value="👆 Select a student and look at camera")
+        tk.Label(left, textvariable=status_var, font=("Helvetica", 12, "bold"),
+                 bg="#0f172a", fg="#a78bfa", wraplength=560).pack(pady=6)
 
-        # Right: live attendance list
-        right = tk.Frame(body, bg="#1e293b", width=280)
+        # Right: attendance status list
+        right = tk.Frame(body, bg="#1e293b", width=260)
         right.pack(side="right", fill="y", padx=(0, 10), pady=10)
         right.pack_propagate(False)
 
@@ -3104,84 +3131,116 @@ class SchoolManagerPro:
                  font=("Helvetica", 11, "bold"), bg="#1e293b", fg="white").pack(pady=(10, 4))
         tk.Frame(right, bg="#7c3aed", height=2).pack(fill="x", padx=10)
 
-        att_frame = tk.Frame(right, bg="#1e293b")
-        att_frame.pack(fill="both", expand=True, padx=8, pady=6)
+        # Scrollable student list
+        list_canvas = tk.Canvas(right, bg="#1e293b", highlightthickness=0)
+        list_sb = ttk.Scrollbar(right, orient="vertical", command=list_canvas.yview)
+        list_canvas.configure(yscrollcommand=list_sb.set)
+        list_sb.pack(side="right", fill="y")
+        list_canvas.pack(fill="both", expand=True, padx=4, pady=4)
+        att_frame = tk.Frame(list_canvas, bg="#1e293b")
+        list_canvas.create_window((0,0), window=att_frame, anchor="nw")
+        att_frame.bind("<Configure>", lambda e: list_canvas.configure(scrollregion=list_canvas.bbox("all")))
 
-        # Create labels for each student in the list panel
         stu_label_widgets = {}
         for stu in students:
             row = tk.Frame(att_frame, bg="#1e293b")
-            row.pack(fill="x", pady=2)
+            row.pack(fill="x", pady=1)
             is_marked = marked_this_session.get(stu["id"], False)
+            has_photo = bool(stu.get("photo_path")) and (self.data_dir / stu.get("photo_path","")).exists()
+            prefix = "✅" if is_marked else ("📷" if has_photo else "❌")
             lbl = tk.Label(row,
-                           text=f"{'✅' if is_marked else '⬜'} {stu.get('name', '?')}",
+                           text=f"{prefix} {stu.get('name', '?')}",
                            font=("Helvetica", 9),
                            bg="#1e293b",
-                           fg="#10b981" if is_marked else "#94a3b8",
+                           fg="#10b981" if is_marked else ("#94a3b8" if has_photo else "#ef4444"),
                            anchor="w")
             lbl.pack(side="left", fill="x", expand=True)
             stu_label_widgets[stu["id"]] = lbl
 
-        # Counters
         counter_var = tk.StringVar()
-
         def update_counter():
-            total_marked = sum(1 for sid in marked_this_session if marked_this_session[sid])
+            total_marked = sum(1 for v in marked_this_session.values() if v)
             counter_var.set(f"✅ Present: {total_marked} / {len(students)}")
-
-        counter_lbl = tk.Label(right, textvariable=counter_var,
-                               font=("Helvetica", 11, "bold"),
-                               bg="#1e293b", fg="#10b981")
-        counter_lbl.pack(pady=6)
+        tk.Label(right, textvariable=counter_var,
+                 font=("Helvetica", 11, "bold"),
+                 bg="#1e293b", fg="#10b981").pack(pady=6)
         update_counter()
 
         # Buttons
         btn_row = tk.Frame(win, bg="#0f172a")
-        btn_row.pack(fill="x", padx=20, pady=10)
+        btn_row.pack(fill="x", padx=20, pady=8)
 
         self._face_att_running = True
-        last_detected_id = [None]
-        good_frames = [0]
+        verify_state = {"good_frames": 0, "last_match": False}
 
         def scan_frame():
             if not self._face_att_running or not win.winfo_exists():
                 return
             ret, frame = cap.read()
             if not ret:
-                win.after(80, scan_frame)
-                return
+                win.after(80, scan_frame); return
+
+            idx = stu_cb.current()
+            current_stu = students[idx] if 0 <= idx < len(students) else None
 
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Enhanced preprocessing for low-quality laptop cameras
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            gray_enhanced = clahe.apply(gray)
+            gray_enhanced = cv2.GaussianBlur(gray_enhanced, (3, 3), 0)
+
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            display = cv2.resize(frame_rgb, (580, 400))
-            scale_x = 580 / frame.shape[1]
+            display = cv2.resize(frame_rgb, (560, 400))
+            scale_x = 560 / frame.shape[1]
             scale_y = 400 / frame.shape[0]
 
-            faces_rect = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(70, 70))
+            faces_rect = face_cascade.detectMultiScale(
+                gray_enhanced, 1.05, 3, minSize=(40, 40))
 
-            matched_stu = None
-            for (x, y, w, h) in faces_rect:
-                face_roi = gray[y:y+h, x:x+w]
-                # New API: predict returns (label, dist, thresh, eyes_ok)
-                label, dist, thresh, eyes_ok = recognizer.predict(face_roi)
+            face_matched = False
+            if current_stu and current_stu["id"] not in marked_this_session:
+                # Show which student we're verifying
+                stu_name = current_stu.get("name", "?")
+                cv2.putText(display, f"Verifying: {stu_name}",
+                            (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                            (147, 130, 250), 2)
 
-                dx = int(x * scale_x)
-                dy = int(y * scale_y)
-                dw = int(w * scale_x)
-                dh = int(h * scale_y)
+                for (x, y, w, h) in faces_rect:
+                    face_roi = gray_enhanced[y:y+h, x:x+w]
+                    label, dist, thresh, _ = recognizer.predict(face_roi)
 
-                if dist < thresh:
-                    matched_stu = label_to_stu.get(label)
-                    color = (16, 185, 129)
-                    name_txt = matched_stu.get("name", "?") if matched_stu else "?"
-                    cv2.rectangle(display, (dx, dy), (dx+dw, dy+dh), color, 2)
-                    cv2.putText(display, f"{name_txt} ({int((1-dist/thresh)*100)}%)",
-                                (dx, dy - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2)
-                else:
-                    color = (239, 68, 68)
-                    cv2.rectangle(display, (dx, dy), (dx+dw, dy+dh), color, 2)
-                    cv2.putText(display, f"Unknown",
-                                (dx, dy - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2)
+                    dx = int(x * scale_x)
+                    dy = int(y * scale_y)
+                    dw = int(w * scale_x)
+                    dh = int(h * scale_y)
+
+                    # Check if matched face belongs to selected student
+                    expected_label = stu_to_label.get(current_stu["id"], -999)
+                    confidence = max(0, int((1 - dist/thresh) * 100)) if thresh > 0 else 0
+
+                    if dist < thresh and label == expected_label:
+                        face_matched = True
+                        color = (16, 185, 129)  # green
+                        cv2.rectangle(display, (dx, dy), (dx+dw, dy+dh), color, 3)
+                        cv2.putText(display, f"{stu_name} ({confidence}%)",
+                                    (dx, dy - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                    elif dist < thresh:
+                        # Matched but wrong student
+                        wrong_stu = label_to_stu.get(label, {})
+                        color = (239, 165, 0)  # orange
+                        cv2.rectangle(display, (dx, dy), (dx+dw, dy+dh), color, 2)
+                        cv2.putText(display, f"Wrong: {wrong_stu.get('name','?')}",
+                                    (dx, dy - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                    else:
+                        color = (239, 68, 68)  # red
+                        cv2.rectangle(display, (dx, dy), (dx+dw, dy+dh), color, 2)
+                        cv2.putText(display, "Not matched",
+                                    (dx, dy - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+            elif current_stu and current_stu["id"] in marked_this_session:
+                cv2.putText(display, f"{current_stu.get('name','?')} - Already Present",
+                            (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                            (16, 185, 129), 2)
 
             # Update camera feed
             if HAS_PIL and _ensure_pil():
@@ -3190,58 +3249,51 @@ class SchoolManagerPro:
                 cam_lbl.configure(image=imgtk)
                 cam_lbl.image = imgtk
 
-            # Confirm match after N consecutive frames
-            if matched_stu:
-                sid = matched_stu["id"]
-                if last_detected_id[0] == sid:
-                    good_frames[0] += 1
-                else:
-                    last_detected_id[0] = sid
-                    good_frames[0] = 1
+            # Confirm match after consecutive frames
+            if face_matched:
+                verify_state["good_frames"] += 1
+                remaining = max(0, 3 - verify_state["good_frames"])
+                status_var.set(f"🔍 Face matched! Confirming... ({verify_state['good_frames']}/3)")
 
-                name = matched_stu.get("name", "?")
-                if marked_this_session.get(sid):
-                    status_var.set(f"✅ {name} – already marked Present")
-                else:
-                    remaining = max(0, 4 - good_frames[0])
-                    status_var.set(f"🔍 {name} recognized – confirming… ({good_frames[0]}/4)")
-
-                if good_frames[0] >= 4 and not marked_this_session.get(sid):
-                    # Mark attendance
-                    matched_stu.setdefault("attendance", {})[date_str] = "Present"
-                    marked_this_session[sid] = True
+                if verify_state["good_frames"] >= 3:
+                    current_stu.setdefault("attendance", {})[date_str] = "Present"
+                    marked_this_session[current_stu["id"]] = True
                     self.save_data()
-                    # Update sidebar label
-                    lbl_w = stu_label_widgets.get(sid)
+                    # Update sidebar
+                    lbl_w = stu_label_widgets.get(current_stu["id"])
                     if lbl_w:
-                        lbl_w.config(text=f"✅ {name}",
+                        lbl_w.config(text=f"✅ {current_stu.get('name','?')}",
                                      fg="#10b981")
                     update_counter()
-                    status_var.set(f"✅ {name}'s attendance marked!")
-                    good_frames[0] = 0
+                    status_var.set(f"✅ {current_stu.get('name','?')} – Attendance Marked!")
+                    verify_state["good_frames"] = 0
+                    # Auto-move to next unmarked student
+                    for i in range(idx + 1, len(students)):
+                        if students[i]["id"] not in marked_this_session:
+                            stu_cb.current(i)
+                            break
             else:
-                last_detected_id[0] = None
-                good_frames[0] = 0
-                if len(faces_rect) > 0:
-                    status_var.set("❌ Not recognized – try again")
+                verify_state["good_frames"] = 0
+                if current_stu and current_stu["id"] in marked_this_session:
+                    status_var.set(f"✅ {current_stu.get('name','?')} already marked. Select next student.")
+                elif len(faces_rect) > 0:
+                    status_var.set(f"❌ Face doesn't match selected student – try again")
                 else:
                     status_var.set("🔍 Look at the camera…")
 
-            win.after(60, scan_frame)
+            win.after(50, scan_frame)
 
         def stop_and_close():
             self._face_att_running = False
             cap.release()
             if win.winfo_exists():
                 win.destroy()
-            # Refresh attendance view
             total_marked = sum(1 for v in marked_this_session.values() if v)
             messagebox.showinfo(
                 "✅ Face Attendance Complete",
                 f"Class {cls} – {date_str}\n"
                 f"Present marked: {total_marked} / {len(students)} students"
             )
-            # Reload the attendance page to reflect saved changes
             self._mark_attendance(cls, date_str)
 
         tk.Button(btn_row, text="✖  Stop & Save",
@@ -3250,7 +3302,7 @@ class SchoolManagerPro:
                   command=stop_and_close).pack(side="right", padx=6)
 
         tk.Label(btn_row,
-                 text="💡 Students come one by one in front of camera – attendance marks automatically",
+                 text="💡 Select student → verify face → auto-moves to next",
                  bg="#0f172a", fg="#94a3b8",
                  font=("Helvetica", 9)).pack(side="left")
 
@@ -3278,11 +3330,14 @@ class SchoolManagerPro:
             s.close()
             return ip
         except Exception:
-            return "127.0.0.1"
+            try:
+                return socket.gethostbyname(socket.gethostname())
+            except Exception:
+                return "127.0.0.1"
 
     @staticmethod
     def _get_host_port():
-        """Get host:port identifier for this device."""
+        """Get host identifier for this device (IP|hostname)."""
         import socket
         ip = SchoolManagerPro._get_local_ip()
         hostname = socket.gethostname()
@@ -3314,12 +3369,23 @@ class SchoolManagerPro:
         if not trusted_host:
             return True  # no restriction set
         current_host = self._get_host_port()
-        # Check if IP matches or hostname matches
         qr_parts = qr_host.split("|")
-        current_parts = current_host.split("|")
         trusted_parts = trusted_host.split("|")
-        # IP must match trusted host IP
-        return qr_parts[0] == trusted_parts[0]
+        current_parts = current_host.split("|")
+        # Match if QR host IP matches trusted OR current device IP
+        # Also match by hostname if IP fails (for DHCP environments)
+        qr_ip = qr_parts[0] if qr_parts else ""
+        qr_hostname = qr_parts[1] if len(qr_parts) > 1 else ""
+        trusted_ip = trusted_parts[0] if trusted_parts else ""
+        trusted_hostname = trusted_parts[1] if len(trusted_parts) > 1 else ""
+        current_ip = current_parts[0] if current_parts else ""
+        current_hostname = current_parts[1] if len(current_parts) > 1 else ""
+        # QR is valid if it was generated on trusted device OR current device
+        if qr_ip == trusted_ip or qr_ip == current_ip:
+            return True
+        if qr_hostname and (qr_hostname == trusted_hostname or qr_hostname == current_hostname):
+            return True
+        return False
 
     def _verify_student_email(self, student):
         """Verify student has a trusted email set."""
@@ -3349,6 +3415,11 @@ class SchoolManagerPro:
 
         qr_dir = self.data_dir / "qr_codes"
         qr_dir.mkdir(exist_ok=True)
+
+        # Auto-set trusted host to current device if not already set
+        if not self.settings.get("trusted_host"):
+            self.settings["trusted_host"] = self._get_host_port()
+            self.save_data()
 
         c = self.colors
         prev = tk.Toplevel(self.root)
@@ -3537,9 +3608,13 @@ class SchoolManagerPro:
                 img = cv2.imread(full_path, cv2.IMREAD_GRAYSCALE)
                 if img is None:
                     continue
-                faces = face_cascade.detectMultiScale(img, 1.1, 4, minSize=(50,50))
+                # Enhanced preprocessing for low-quality cameras
+                clahe_pre = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+                img = clahe_pre.apply(img)
+                img = cv2.GaussianBlur(img, (3, 3), 0)
+                faces = face_cascade.detectMultiScale(img, 1.05, 3, minSize=(30,30))
                 if len(faces):
-                    x, y, w, h = faces[0]
+                    x, y, w, h = max(faces, key=lambda r: r[2]*r[3])
                     roi = img[y:y+h, x:x+w]
                 else:
                     roi = img
@@ -3655,8 +3730,12 @@ class SchoolManagerPro:
             if not face_recognizer:
                 return False
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Enhanced preprocessing for low-quality laptop cameras
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            gray = clahe.apply(gray)
+            gray = cv2.GaussianBlur(gray, (3, 3), 0)
             face_cascade = face_recognizer._face_casc
-            faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(60,60))
+            faces = face_cascade.detectMultiScale(gray, 1.05, 3, minSize=(40,40))
             if len(faces) == 0:
                 return False
             x, y, w, h = max(faces, key=lambda r: r[2]*r[3])
