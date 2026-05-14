@@ -676,8 +676,8 @@ class SchoolManagerPro:
                       if u.get("face_photo_path") and os.path.isfile(u["face_photo_path"])]
         if not face_users:
             messagebox.showwarning("No Faces Registered",
-                "Kisi user ne abhi face register nahi kiya.\n\n"
-                "Password se login karein pehle, phir\n"
+                "No user has registered their face yet.\n\n"
+                "Please login with password first, then go to\n"
                 "Settings → Register My Face.")
             return
 
@@ -709,7 +709,7 @@ class SchoolManagerPro:
 
         if not train_imgs:
             messagebox.showerror("Error",
-                "Face images load nahi ho sakin. Dobara register karein."); return
+                "Could not load face images. Please register again."); return
         recognizer.train(train_imgs, _np.array(train_lbls))
 
         # ── Open camera ────────────────────────────────────────────────────
@@ -722,7 +722,7 @@ class SchoolManagerPro:
             if not path: return
             img = _cv2.imread(path, _cv2.IMREAD_GRAYSCALE)
             if img is None:
-                messagebox.showerror("Error", "Image load nahi hui."); return
+                messagebox.showerror("Error", "Could not load image."); return
             fdet = face_cascade.detectMultiScale(img, 1.1, 4, minSize=(50,50))
             if len(fdet):
                 x,y,w,h = fdet[0]; roi = img[y:y+h, x:x+w]
@@ -738,7 +738,7 @@ class SchoolManagerPro:
                 self.show_main_application()
             else:
                 messagebox.showerror("❌ Login Failed",
-                    "Face match nahi hua. Password se login karein.")
+                    "Face did not match. Please login with password.")
             return
         cap.set(_cv2.CAP_PROP_FRAME_WIDTH,  640)
         cap.set(_cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -979,7 +979,7 @@ class SchoolManagerPro:
                 canvas.create_oval(cx-ow, cy-oh, cx+ow, cy+oh,
                                    outline="#334155", width=2, dash=(6,4))
                 canvas.create_text(330, 440-20,
-                    text="Apna chehra frame ke andar rakhein",
+                    text="Keep your face inside the frame",
                     fill="#64748b", font=("Helvetica",10))
 
             # ── UI labels ─────────────────────────────────────────────────
@@ -995,10 +995,10 @@ class SchoolManagerPro:
 
             if not is_live:
                 live_var.set(
-                    f"👁️ Aankhein jhapkayen (blink)  "
+                    f"👁️ Please blink your eyes  "
                     f"|  motion: {state['motion_count']}/8")
             else:
-                live_var.set("✅ Liveness confirm ho gayi!")
+                live_var.set("✅ Liveness confirmed!")
 
             # ── Good-frame counter ─────────────────────────────────────────
             if matched:
@@ -1011,12 +1011,12 @@ class SchoolManagerPro:
                     state["good_frames"] = 1
                 progress["value"] = state["good_frames"]
                 status_var.set(
-                    f"✅ Pehchana: {matched['username']}  "
-                    f"({state['good_frames']}/5)  verify ho raha hai…")
+                    f"✅ Recognized: {matched['username']}  "
+                    f"({state['good_frames']}/5)  verifying…")
                 if state["good_frames"] >= 5:
                     self._face_login_running = False
                     status_var.set(
-                        f"✅ Login ho raha hai: {matched['username']}…")
+                        f"✅ Logging in: {matched['username']}…")
                     win.after(600,
                               lambda: self._face_login_success(cap, win, matched))
                     return
@@ -1027,13 +1027,13 @@ class SchoolManagerPro:
                 if len(faces_rect) > 0:
                     if not is_live:
                         status_var.set(
-                            "⚠️ Face scan ho raha hai — aankhein jhapkayen")
+                            "⚠️ Face scan in progress — please blink your eyes")
                     else:
                         status_var.set(
-                            f"❌ Pehchana nahi  ({int(best_sim_pct*100)}% match)  "
-                            "— qareeb aayen ya better roshni mein aayen")
+                            f"❌ Not recognized  ({int(best_sim_pct*100)}% match)  "
+                            "— move closer or improve lighting")
                 else:
-                    status_var.set("🔍 Koi chehra nahi mila — seedha camera mein dekhen")
+                    status_var.set("🔍 No face detected — look straight at the camera")
 
             win.after(50, scan_frame)
 
@@ -1066,13 +1066,15 @@ class SchoolManagerPro:
         if not HAS_FACE:
             messagebox.showerror("Not Available",
                 "Face recognition not available.\n"
-                "Settings → Auto-Install karein.")
+                "Go to Settings → Auto-Install.")
             return
 
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
             cap.release()
-            self._register_face_from_image()
+            messagebox.showerror("Camera Required",
+                "Face registration requires a camera.\n"
+                "Please connect a webcam and try again.")
             return
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -1093,7 +1095,7 @@ class SchoolManagerPro:
                  font=("Helvetica",16,"bold"), bg="#065f46", fg="white").pack(anchor="w")
         tk.Label(hdr,
                  text=f"User: {self.current_user['username']}  |  "
-                      "Seedha, LEFT, RIGHT, thoda upar, thoda neechay",
+                      "Straight, LEFT, RIGHT, slightly up, slightly down",
                  font=("Helvetica",10), bg="#065f46", fg="#a7f3d0").pack(anchor="w")
 
         # Camera canvas
@@ -1101,16 +1103,16 @@ class SchoolManagerPro:
                            bg="#060d1a", highlightthickness=0)
         canvas.pack(pady=(8,2))
 
-        status_var  = tk.StringVar(value="📷 Camera live – Capture dabayein")
+        status_var  = tk.StringVar(value="📷 Camera live – Press Capture")
         quality_var = tk.StringVar(value="")
         sample_var  = tk.StringVar(
             value="📸 Samples: 0/5  (3 minimum, 5 recommended)")
         instr_msgs = [
-            "▶ Sample 1: Seedha bilkul camera mein dekhen",
-            "▶ Sample 2: Thoda LEFT jhukao",
-            "▶ Sample 3: Thoda RIGHT jhukao",
-            "▶ Sample 4: Thoda UPAR dekhen",
-            "▶ Sample 5: Normal expression – natural raho",
+            "▶ Sample 1: Look straight at the camera",
+            "▶ Sample 2: Tilt slightly LEFT",
+            "▶ Sample 3: Tilt slightly RIGHT",
+            "▶ Sample 4: Look slightly UP",
+            "▶ Sample 5: Normal expression – stay natural",
         ]
         instr_var = tk.StringVar(value=instr_msgs[0])
 
@@ -1230,16 +1232,16 @@ class SchoolManagerPro:
                 last_frame[0] = (frame, eyes_ok)
                 if len(samples) < 5:
                     if eyes_ok and quality > 0.3:
-                        status_var.set("✅ Excellent quality! Capture dabayein")
+                        status_var.set("✅ Excellent quality! Press Capture")
                         quality_var.set(
                             f"👁️ Eyes detected | Quality: {int(quality*100)}%")
                     elif eyes_ok:
-                        status_var.set("✅ Eyes mili – better roshni mein aayen")
+                        status_var.set("✅ Eyes detected – improve lighting for better quality")
                         quality_var.set(
-                            f"⚠️ Quality thodi kam: {int(quality*100)}%")
+                            f"⚠️ Quality is low: {int(quality*100)}%")
                     else:
                         status_var.set(
-                            "⚠️ Eyes detect nahi hui – seedha dekhen")
+                            "⚠️ Eyes not detected – look straight at camera")
                         quality_var.set(
                             f"Quality: {int(quality*100)}% | Eyes: ❌")
             else:
@@ -1248,53 +1250,53 @@ class SchoolManagerPro:
                 canvas.create_oval(330-170, 215-220, 330+170, 215+220,
                                    outline="#334155", width=2, dash=(6,4))
                 canvas.create_text(330, 415,
-                    text="Apna chehra yahan rakhein",
+                    text="Place your face here",
                     fill="#64748b", font=("Helvetica",11))
-                status_var.set("⚠️ Koi chehra nahi mila – qareeb aayen")
+                status_var.set("⚠️ No face detected – move closer")
                 quality_var.set("")
 
             win.after(55, update_feed)
 
         def capture():
             if len(samples) >= 5:
-                messagebox.showinfo("5 Samples", "5 samples ho chuke. Save dabayein."); return
+                messagebox.showinfo("5 Samples", "All 5 samples captured. Click Save."); return
             data = last_frame[0]
             if data is None:
-                messagebox.showwarning("Face Nahi Mila",
-                    "Pehle apna chehra camera mein layen."); return
+                messagebox.showwarning("No Face Found",
+                    "Please position your face in front of the camera."); return
             frame, eyes_ok = data
             gray  = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             faces = face_casc.detectMultiScale(gray, 1.1, 4, minSize=(70,70))
             if len(faces) == 0:
-                messagebox.showwarning("Face Nahi Mila",
-                    "Face detect nahi hua.\n"
-                    "Better roshni mein aayen aur seedha dekhen."); return
+                messagebox.showwarning("No Face Found",
+                    "Face not detected.\n"
+                    "Improve lighting and look straight at camera."); return
             if not eyes_ok and len(samples) == 0:
                 if not messagebox.askyesno("Quality Warning",
-                    "Eyes detect nahi huin — quality low hai.\n"
-                    "Phir bhi capture karein?\n"
-                    "(Behtar nateeja ke liye better roshni mein aayen)"):
+                    "Eyes not detected — quality is low.\n"
+                    "Capture anyway?\n"
+                    "(For better results, improve lighting)"):
                     return
             samples.append(frame.copy())
             n = len(samples)
             sample_var.set(
                 f"📸 Samples: {n}/5  "
-                f"({'MIN DONE – Save kar sakte hain' if n >= 3 else str(5-n)+' aur chahiye'})")
+                f"({'MIN DONE – You can save now' if n >= 3 else str(5-n)+' more needed'})")
             if n < 5:
                 instr_var.set(instr_msgs[n])
             else:
-                instr_var.set("✅ Sabhi 5 samples complete! Save karein.")
-            status_var.set(f"✅ Sample {n} capture ho gaya!")
+                instr_var.set("✅ All 5 samples complete! Click Save.")
+            status_var.set(f"✅ Sample {n} captured!")
 
         def save_register():
             if not samples:
-                messagebox.showwarning("Kuch Nahi",
-                    "Pehle kam se kam 1 photo capture karein."); return
+                messagebox.showwarning("Nothing Captured",
+                    "Please capture at least 1 photo first."); return
             if len(samples) < 3:
-                if not messagebox.askyesno("Kam Samples",
-                    f"Sirf {len(samples)} sample(s) hain.\n"
-                    "3+ se accuracy behtar hoti hai.\n\n"
-                    "Abhi save karein?"):
+                if not messagebox.askyesno("Few Samples",
+                    f"Only {len(samples)} sample(s) captured.\n"
+                    "3+ samples give better accuracy.\n\n"
+                    "Save now?"):
                     return
 
             face_dir = self.data_dir / "face_photos"
@@ -1315,10 +1317,10 @@ class SchoolManagerPro:
             self._face_reg_running = False
             cap.release()
             win.destroy()
-            messagebox.showinfo("✅ Register Ho Gaya",
-                f"{len(samples)} samples save ho gaye "
-                f"'{self.current_user['username']}' ke liye!\n\n"
-                "Ab 📷 Face Login use kar sakte hain.")
+            messagebox.showinfo("✅ Registration Complete",
+                f"{len(samples)} samples saved for "
+                f"'{self.current_user['username']}'!\n\n"
+                "You can now use 📷 Face Login.")
 
         def cancel():
             self._face_reg_running = False
@@ -1410,10 +1412,10 @@ class SchoolManagerPro:
             self.current_user["face_encoding"]     = None
             self.save_data()
             win.destroy()
-            messagebox.showinfo("✅ Register Ho Gaya",
-                f"{len(photos)} photos save ho gaye "
-                f"'{self.current_user['username']}' ke liye!\n\n"
-                "Ab 📷 Face Login use kar sakte hain.")
+            messagebox.showinfo("✅ Registration Complete",
+                f"{len(photos)} photos saved for "
+                f"'{self.current_user['username']}'!\n\n"
+                "You can now use 📷 Face Login.")
 
         btn_row = tk.Frame(win, bg="#060d1a")
         btn_row.pack(pady=12)
@@ -2402,6 +2404,7 @@ class SchoolManagerPro:
             ("Phone","phone", edit.get("phone","") if is_edit else ""),
             ("Class","class", edit.get("class","") if is_edit else ""),
             ("Section","section", edit.get("section","") if is_edit else ""),
+            ("Email","email", edit.get("email","") if is_edit else ""),
             ("Date of Birth (YYYY-MM-DD)","dob", edit.get("dob","") if is_edit else ""),
             ("Address","address", edit.get("address","") if is_edit else ""),
         ]
@@ -2659,43 +2662,68 @@ class SchoolManagerPro:
         if not self.check_perm("attendance"): return
         self._clear()
         c = self.colors
-        self._header("📋  Attendance Management", "Mark daily student & teacher attendance")
+        self._header("📋  Attendance System", "Complete attendance management with QR, Face Recognition & Manual marking")
 
-        ctrl = tk.Frame(self.main, bg=c["content_bg"], padx=25, pady=15)
-        ctrl.pack(fill="x")
+        # ── Class & Date Selection Bar ───────────────────────────────────
+        sel_bar = tk.Frame(self.main, bg=c["card_bg"], padx=25, pady=12)
+        sel_bar.pack(fill="x", padx=20, pady=(10,5))
 
-        tk.Label(ctrl, text="Class:", bg=c["content_bg"], fg=c["subtext"]).pack(side="left")
+        tk.Label(sel_bar, text="📚 Class:", bg=c["card_bg"], fg=c["subtext"],
+                 font=("Helvetica",11,"bold")).pack(side="left")
         cls_v = tk.StringVar()
-        cls_cb = ttk.Combobox(ctrl, textvariable=cls_v,
+        cls_cb = ttk.Combobox(sel_bar, textvariable=cls_v,
                                values=self._all_classes(), state="readonly", width=10)
         cls_cb.pack(side="left", padx=6)
 
-        tk.Label(ctrl, text="Date:", bg=c["content_bg"], fg=c["subtext"]).pack(side="left", padx=(10,0))
+        tk.Label(sel_bar, text="📅 Date:", bg=c["card_bg"], fg=c["subtext"],
+                 font=("Helvetica",11,"bold")).pack(side="left", padx=(20,0))
         date_v = tk.StringVar(value=datetime.date.today().isoformat())
-        tk.Entry(ctrl, textvariable=date_v, bg=c["card_bg"], fg=c["text"],
-                  insertbackground=c["text"], width=12, relief="flat", bd=7
-                  ).pack(side="left", padx=6)
+        tk.Entry(sel_bar, textvariable=date_v, bg=c["dark_light"], fg=c["text"],
+                  insertbackground=c["text"], width=12, relief="flat", bd=7,
+                  font=("Helvetica",10)).pack(side="left", padx=6)
 
-        tk.Button(ctrl, text="📋 Mark Student Attendance", bg=c["success"], fg="white",
-                  command=lambda: self._mark_attendance(cls_v.get(), date_v.get())
-                  ).pack(side="right", padx=4)
-        tk.Button(ctrl, text="👩‍🏫 Teacher Attendance", bg=c["primary"], fg="white",
-                  command=lambda: self._teacher_att(date_v.get())
-                  ).pack(side="right", padx=4)
-        tk.Button(ctrl, text="📱 Generate QR Codes", bg="#8b5cf6", fg="white",
-                  command=lambda: self._generate_qr_for_class(cls_v.get())
-                  ).pack(side="right", padx=4)
-        tk.Button(ctrl, text="🔍 Scan QR Attendance", bg=c["warning"], fg="white",
-                  command=lambda: self._scan_qr_attendance(date_v.get())
-                  ).pack(side="right", padx=4)
-        tk.Button(ctrl, text="🤖 Face Attendance", bg="#7c3aed", fg="white",
-                  font=("Helvetica",10,"bold"),
-                  command=lambda: self._face_att_scan(cls_v.get(), date_v.get())
-                  ).pack(side="right", padx=4)
+        # ── Attendance Method Cards ──────────────────────────────────────
+        methods = tk.Frame(self.main, bg=c["content_bg"], padx=20)
+        methods.pack(fill="x", pady=5)
 
-        # attendance report section
+        cards_data = [
+            ("📱 QR Code\nAttendance", "#8b5cf6",
+             "Generate dynamic QR codes\nand scan to mark attendance",
+             lambda: self._generate_qr_for_class(cls_v.get())),
+            ("🔍 Scan QR\nCode", c["warning"],
+             "Scan student QR codes\nvia webcam or image file",
+             lambda: self._scan_qr_attendance(date_v.get())),
+            ("🤖 Face\nRecognition", "#7c3aed",
+             "Auto-detect student faces\nand mark attendance",
+             lambda: self._face_att_scan(cls_v.get(), date_v.get())),
+            ("📋 Manual\nAttendance", c["success"],
+             "Manually mark student\nattendance for a class",
+             lambda: self._mark_attendance(cls_v.get(), date_v.get())),
+            ("👩‍🏫 Teacher\nAttendance", c["primary"],
+             "Mark teacher attendance\nfor today",
+             lambda: self._teacher_att(date_v.get())),
+        ]
+
+        for i, (title, color, desc, cmd) in enumerate(cards_data):
+            card = tk.Frame(methods, bg=c["card_bg"], padx=15, pady=12,
+                            cursor="hand2")
+            card.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+
+            tk.Label(card, text=title, font=("Helvetica",12,"bold"),
+                     bg=c["card_bg"], fg="white", justify="center").pack(pady=(0,5))
+
+            btn = tk.Button(card, text="Open", bg=color, fg="white",
+                            font=("Helvetica",10,"bold"), bd=0, padx=20, pady=6,
+                            command=cmd, cursor="hand2")
+            btn.pack(pady=5)
+
+            tk.Label(card, text=desc, bg=c["card_bg"], fg=c["subtext"],
+                     font=("Helvetica",8), justify="center",
+                     wraplength=130).pack(pady=(2,0))
+
+        # ── Attendance Report Section ────────────────────────────────────
         rpt_f = tk.Frame(self.main, bg=c["card_bg"], padx=20, pady=15)
-        rpt_f.pack(fill="x", padx=25, pady=5)
+        rpt_f.pack(fill="x", padx=20, pady=5)
         tk.Label(rpt_f, text="📊 Attendance Report", font=("Helvetica",12,"bold"),
                  bg=c["card_bg"], fg=c["text"]).pack(anchor="w")
 
@@ -2707,8 +2735,51 @@ class SchoolManagerPro:
                   insertbackground=c["text"], width=10, relief="flat", bd=7
                   ).pack(side="left", padx=6)
 
+        # CSV Export button
+        def export_att_csv():
+            cls = cls_v.get()
+            month = mon_v.get()
+            if not cls:
+                messagebox.showerror("Error", "Select a class first"); return
+            students = [s for s in self.students if s.get("class") == cls]
+            if not students:
+                messagebox.showinfo("Info", f"No students in class {cls}"); return
+            path = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV", "*.csv")],
+                title="Export Attendance CSV",
+                initialfile=f"attendance_{cls}_{month}.csv")
+            if not path: return
+            import csv
+            try:
+                yr, mn = int(month[:4]), int(month[5:7])
+                import calendar
+                days_in_month = calendar.monthrange(yr, mn)[1]
+                dates = [f"{yr}-{mn:02d}-{d:02d}" for d in range(1, days_in_month+1)]
+            except Exception:
+                dates = [datetime.date.today().isoformat()]
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["Student Name", "Admission No", "Class"] + dates + ["Total Present", "Percentage"])
+                for stu in students:
+                    att = stu.get("attendance", {})
+                    row = [stu.get("name",""), stu.get("admissionNo",""), cls]
+                    present_count = 0
+                    for d in dates:
+                        status = att.get(d, "Absent")
+                        row.append(status)
+                        if status == "Present":
+                            present_count += 1
+                    pct = round(present_count / len(dates) * 100, 1) if dates else 0
+                    row.extend([present_count, f"{pct}%"])
+                    writer.writerow(row)
+            messagebox.showinfo("✅", f"Attendance CSV exported to:\n{path}")
+
+        tk.Button(r2, text="📤 Export CSV", bg=c["primary"], fg="white",
+                  font=("Helvetica",9), command=export_att_csv).pack(side="left", padx=8)
+
         self._att_tree_outer = tk.Frame(self.main, bg=c["content_bg"])
-        self._att_tree_outer.pack(fill="both", expand=True, padx=25, pady=5)
+        self._att_tree_outer.pack(fill="both", expand=True, padx=20, pady=5)
 
     def _mark_attendance(self, cls, date_str):
         if not cls:
@@ -2960,9 +3031,9 @@ class SchoolManagerPro:
                  font=("Helvetica", 16, "bold"), bg="#7c3aed", fg="white").pack(anchor="w")
         info_parts = []
         if skipped:
-            info_parts.append(f"⚠️ {len(skipped)} students ki photo nahi: {', '.join(skipped[:4])}"
+            info_parts.append(f"⚠️ {len(skipped)} students have no photo: {', '.join(skipped[:4])}"
                               + ("..." if len(skipped) > 4 else ""))
-        info_parts.append(f"✅ {len(train_imgs)} students ke faces loaded | Camera mein dekhen")
+        info_parts.append(f"✅ {len(train_imgs)} student faces loaded | Look at camera")
         tk.Label(hdr, text="   ".join(info_parts),
                  font=("Helvetica", 9), bg="#7c3aed", fg="#ddd6fe",
                  wraplength=860, justify="left").pack(anchor="w")
@@ -2977,7 +3048,7 @@ class SchoolManagerPro:
         cam_lbl = tk.Label(left, bg="#0f172a")
         cam_lbl.pack()
 
-        status_var = tk.StringVar(value="🔍 Camera scan ho raha hai…")
+        status_var = tk.StringVar(value="🔍 Camera scanning…")
         tk.Label(left, textvariable=status_var, font=("Helvetica", 11, "bold"),
                  bg="#0f172a", fg="#a78bfa", wraplength=560).pack(pady=4)
 
@@ -3090,7 +3161,7 @@ class SchoolManagerPro:
                     status_var.set(f"✅ {name} – already marked Present")
                 else:
                     remaining = max(0, 4 - good_frames[0])
-                    status_var.set(f"🔍 {name} pehchana – confirm ho raha hai… ({good_frames[0]}/4)")
+                    status_var.set(f"🔍 {name} recognized – confirming… ({good_frames[0]}/4)")
 
                 if good_frames[0] >= 4 and not marked_this_session.get(sid):
                     # Mark attendance
@@ -3103,15 +3174,15 @@ class SchoolManagerPro:
                         lbl_w.config(text=f"✅ {name}",
                                      fg="#10b981")
                     update_counter()
-                    status_var.set(f"✅ {name} ki attendance mark ho gayi!")
+                    status_var.set(f"✅ {name}'s attendance marked!")
                     good_frames[0] = 0
             else:
                 last_detected_id[0] = None
                 good_frames[0] = 0
                 if len(faces_rect) > 0:
-                    status_var.set("❌ Pehchana nahi – try again")
+                    status_var.set("❌ Not recognized – try again")
                 else:
-                    status_var.set("🔍 Camera mein dekhein…")
+                    status_var.set("🔍 Look at the camera…")
 
             win.after(60, scan_frame)
 
@@ -3130,13 +3201,13 @@ class SchoolManagerPro:
             # Reload the attendance page to reflect saved changes
             self._mark_attendance(cls, date_str)
 
-        tk.Button(btn_row, text="✖  Band Karein & Save",
+        tk.Button(btn_row, text="✖  Stop & Save",
                   bg=c["danger"], fg="white",
                   font=("Helvetica", 11, "bold"), bd=0, padx=24, pady=10,
                   command=stop_and_close).pack(side="right", padx=6)
 
         tk.Label(btn_row,
-                 text="💡 Ek ek kar ke students camera ke samne aayein – attendance auto mark hogi",
+                 text="💡 Students come one by one in front of camera – attendance marks automatically",
                  bg="#0f172a", fg="#94a3b8",
                  font=("Helvetica", 9)).pack(side="left")
 
@@ -3208,6 +3279,27 @@ class SchoolManagerPro:
     #  QR CODE ATTENDANCE (Dynamic QR – refreshes every 30 seconds)
     # ════════════════════════════════════════════════════════════════════════
     @staticmethod
+    def _get_local_ip():
+        """Get the local IP address of this machine."""
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "127.0.0.1"
+
+    @staticmethod
+    def _get_host_port():
+        """Get host:port identifier for this device."""
+        import socket
+        ip = SchoolManagerPro._get_local_ip()
+        hostname = socket.gethostname()
+        return f"{ip}|{hostname}"
+
+    @staticmethod
     def _qr_token(student_id, secret_key="school_manager_secret"):
         """Generate HMAC-SHA256 token for current 30-second window."""
         import hmac, time
@@ -3226,6 +3318,29 @@ class SchoolManagerPro:
             if token == expected:
                 return True
         return False
+
+    def _verify_qr_network(self, qr_host):
+        """Verify QR was generated on the trusted network/device."""
+        trusted_host = self.settings.get("trusted_host", "")
+        if not trusted_host:
+            return True  # no restriction set
+        current_host = self._get_host_port()
+        # Check if IP matches or hostname matches
+        qr_parts = qr_host.split("|")
+        current_parts = current_host.split("|")
+        trusted_parts = trusted_host.split("|")
+        # IP must match trusted host IP
+        return qr_parts[0] == trusted_parts[0]
+
+    def _verify_student_email(self, student):
+        """Verify student has a trusted email set."""
+        trusted_domain = self.settings.get("trusted_email_domain", "")
+        if not trusted_domain:
+            return True  # no restriction
+        email = student.get("email", "")
+        if not email:
+            return False
+        return email.lower().endswith(f"@{trusted_domain.lower()}")
 
     def _generate_qr_for_class(self, class_name):
         """Generate Dynamic QR codes for class – open live window with 30s refresh."""
@@ -3279,9 +3394,10 @@ class SchoolManagerPro:
                 w.destroy()
             prev._imgs = []
 
+            host_id = self._get_host_port()
             for i, stu in enumerate(students[:12]):
                 token = self._qr_token(stu["id"])
-                payload = json.dumps({"id": stu["id"], "token": token})
+                payload = json.dumps({"id": stu["id"], "token": token, "host": host_id})
                 img = qrcode.make(payload)
                 itk = ImageTk.PhotoImage(img.resize((90, 90), Image.LANCZOS))
                 prev._imgs.append(itk)
@@ -3401,16 +3517,24 @@ class SchoolManagerPro:
                 qr_data = json.loads(data)
                 stu_id = qr_data.get("id", "")
                 token = qr_data.get("token", "")
+                qr_host = qr_data.get("host", "")
                 stu = next((s for s in self.students if s["id"]==stu_id), None)
-                if stu and self._verify_qr_token(stu_id, token):
+                if not stu:
+                    log(f"⚠️  Unknown student ID in QR"); return
+                # Verify network/WiFi
+                if not self._verify_qr_network(qr_host):
+                    log(f"⚠️  {stu['name']} – QR from untrusted network!"); return
+                # Verify trusted email
+                if not self._verify_student_email(stu):
+                    log(f"⚠️  {stu['name']} – No trusted email set!"); return
+                # Verify token
+                if self._verify_qr_token(stu_id, token):
                     stu.setdefault("attendance",{})[date_str] = "Present"
                     self.save_data()
                     marked_today.add(data)
-                    log(f"✅ {stu['name']} – Present (token verified)")
-                elif stu:
-                    log(f"⚠️  {stu['name']} – QR expired! Token invalid")
+                    log(f"✅ {stu['name']} – Present (token + network verified)")
                 else:
-                    log(f"⚠️  Unknown student ID in QR")
+                    log(f"⚠️  {stu['name']} – QR expired! Token invalid")
             except (json.JSONDecodeError, KeyError):
                 try:
                     import base64 as b64
@@ -4313,6 +4437,8 @@ class SchoolManagerPro:
                   command=self._record_payment_dlg).pack(side="left", padx=3)
         tk.Button(act, text="🖨️ Print Voucher PDF", bg="#8b5cf6", fg="white",
                   command=self._print_voucher).pack(side="left", padx=3)
+        tk.Button(act, text="📊 Finance Graphs", bg="#06b6d4", fg="white",
+                  command=self._show_finance_graphs).pack(side="left", padx=3)
         tk.Button(act, text="⏳ Pending Students", bg=c["danger"], fg="white",
                   command=self._open_pending_panel).pack(side="right", padx=3)
 
@@ -4785,12 +4911,222 @@ class SchoolManagerPro:
                   font=("Helvetica",11,"bold"), pady=10,
                   command=generate).pack(fill="x", padx=30, pady=10)
 
+    def _show_finance_graphs(self):
+        """Show finance/fee visualization graphs in a new window."""
+        c = self.colors
+        win = tk.Toplevel(self.root)
+        win.title("📊 Finance Graphs")
+        win.geometry("900x700")
+        win.configure(bg=c["dark"])
+        win.transient(self.root)
+
+        tk.Label(win, text="📊  Finance & Fee Analytics",
+                 font=("Helvetica",16,"bold"), bg=c["dark"], fg="white").pack(pady=(15,5))
+
+        # Gather fee data by month
+        month_data = {}
+        class_data = {}
+        for stu in self.students:
+            cls = stu.get("class", "Unknown")
+            for mon, rec in stu.get("fee_records", {}).items():
+                due = rec.get("due", 0)
+                paid = rec.get("paid", 0)
+                disc = rec.get("discount", 0)
+                fine = rec.get("fine", 0)
+                balance = due - disc + fine - paid
+
+                if mon not in month_data:
+                    month_data[mon] = {"collected": 0, "pending": 0, "total_due": 0}
+                month_data[mon]["collected"] += paid
+                month_data[mon]["pending"] += max(0, balance)
+                month_data[mon]["total_due"] += due
+
+                if cls not in class_data:
+                    class_data[cls] = {"collected": 0, "pending": 0}
+                class_data[cls]["collected"] += paid
+                class_data[cls]["pending"] += max(0, balance)
+
+        if not month_data:
+            tk.Label(win, text="No fee records found.\nAdd fee structures and generate vouchers first.",
+                     font=("Helvetica",12), bg=c["dark"], fg=c["subtext"],
+                     justify="center").pack(expand=True)
+            return
+
+        # Scrollable canvas for graphs
+        outer = tk.Frame(win, bg=c["dark"])
+        outer.pack(fill="both", expand=True, padx=20, pady=10)
+
+        cv = tk.Canvas(outer, bg=c["dark"], highlightthickness=0)
+        sb = ttk.Scrollbar(outer, orient="vertical", command=cv.yview)
+        cv.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        cv.pack(fill="both", expand=True)
+        content = tk.Frame(cv, bg=c["dark"])
+        cw = cv.create_window((0,0), window=content, anchor="nw")
+        content.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
+        cv.bind("<Configure>", lambda e: cv.itemconfig(cw, width=e.width))
+
+        # ── Summary Cards ─────────────────────────────────────
+        summary_f = tk.Frame(content, bg=c["dark"])
+        summary_f.pack(fill="x", pady=(0,15))
+
+        total_collected = sum(d["collected"] for d in month_data.values())
+        total_pending = sum(d["pending"] for d in month_data.values())
+        total_due = sum(d["total_due"] for d in month_data.values())
+        collection_rate = round(total_collected / total_due * 100, 1) if total_due > 0 else 0
+
+        for label, value, color in [
+            ("Total Collected", f"RS {total_collected:,.0f}", c["success"]),
+            ("Total Pending", f"RS {total_pending:,.0f}", c["danger"]),
+            ("Total Due", f"RS {total_due:,.0f}", c["primary"]),
+            ("Collection Rate", f"{collection_rate}%", "#fbbf24"),
+        ]:
+            card = tk.Frame(summary_f, bg=c["card_bg"], padx=20, pady=12)
+            card.pack(side="left", expand=True, fill="both", padx=5)
+            tk.Label(card, text=label, bg=c["card_bg"], fg=c["subtext"],
+                     font=("Helvetica",9)).pack(anchor="w")
+            tk.Label(card, text=value, bg=c["card_bg"], fg=color,
+                     font=("Helvetica",18,"bold")).pack(anchor="w")
+
+        # ── Monthly Collection Bar Chart ──────────────────────
+        chart1 = tk.Frame(content, bg=c["card_bg"], padx=20, pady=15)
+        chart1.pack(fill="x", pady=8)
+        tk.Label(chart1, text="Monthly Fee Collection Trend",
+                 font=("Helvetica",13,"bold"), bg=c["card_bg"], fg=c["text"]).pack(anchor="w")
+
+        sorted_months = sorted(month_data.keys())[-12:]  # last 12 months
+        if sorted_months:
+            max_val = max(max(month_data[m]["collected"], month_data[m]["pending"])
+                         for m in sorted_months) or 1
+            bar_canvas = tk.Canvas(chart1, bg=c["card_bg"], height=250,
+                                   highlightthickness=0)
+            bar_canvas.pack(fill="x", pady=10)
+            bar_canvas.update_idletasks()
+            cw_width = 820
+
+            bar_w = max(20, min(50, (cw_width - 80) // (len(sorted_months) * 2 + 1)))
+            x_start = 60
+            y_base = 230
+            y_top = 20
+
+            # Y-axis labels
+            for i in range(5):
+                val = int(max_val * i / 4)
+                y = y_base - int((y_base - y_top) * i / 4)
+                bar_canvas.create_text(50, y, text=f"{val:,}", anchor="e",
+                                       fill=c["subtext"], font=("Helvetica",7))
+                bar_canvas.create_line(x_start, y, cw_width-10, y,
+                                       fill="#334155", dash=(2,2))
+
+            for i, mon in enumerate(sorted_months):
+                x = x_start + i * (bar_w * 2 + 15)
+                collected = month_data[mon]["collected"]
+                pending = month_data[mon]["pending"]
+
+                # Collected bar (green)
+                h_c = int((y_base - y_top) * collected / max_val) if max_val else 0
+                bar_canvas.create_rectangle(x, y_base - h_c, x + bar_w, y_base,
+                                            fill="#10b981", outline="")
+
+                # Pending bar (red)
+                h_p = int((y_base - y_top) * pending / max_val) if max_val else 0
+                bar_canvas.create_rectangle(x + bar_w + 2, y_base - h_p,
+                                            x + bar_w * 2 + 2, y_base,
+                                            fill="#ef4444", outline="")
+
+                # Month label
+                short_mon = mon[-2:] if len(mon) >= 7 else mon
+                bar_canvas.create_text(x + bar_w, y_base + 12, text=short_mon,
+                                       fill=c["subtext"], font=("Helvetica",7))
+
+            # Legend
+            bar_canvas.create_rectangle(cw_width-180, 10, cw_width-168, 22,
+                                        fill="#10b981", outline="")
+            bar_canvas.create_text(cw_width-165, 16, text="Collected", anchor="w",
+                                   fill=c["subtext"], font=("Helvetica",8))
+            bar_canvas.create_rectangle(cw_width-100, 10, cw_width-88, 22,
+                                        fill="#ef4444", outline="")
+            bar_canvas.create_text(cw_width-85, 16, text="Pending", anchor="w",
+                                   fill=c["subtext"], font=("Helvetica",8))
+
+        # ── Class-wise Collection Pie Chart ───────────────────
+        chart2 = tk.Frame(content, bg=c["card_bg"], padx=20, pady=15)
+        chart2.pack(fill="x", pady=8)
+        tk.Label(chart2, text="Class-wise Fee Collection",
+                 font=("Helvetica",13,"bold"), bg=c["card_bg"], fg=c["text"]).pack(anchor="w")
+
+        if class_data:
+            pie_canvas = tk.Canvas(chart2, bg=c["card_bg"], height=280,
+                                   highlightthickness=0)
+            pie_canvas.pack(fill="x", pady=10)
+
+            colors_list = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
+                           "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#6366f1"]
+            total_class_collected = sum(d["collected"] for d in class_data.values()) or 1
+
+            cx, cy, r = 200, 140, 120
+            start_angle = 0
+            sorted_classes = sorted(class_data.keys())
+
+            for i, cls in enumerate(sorted_classes):
+                collected = class_data[cls]["collected"]
+                extent = 360 * collected / total_class_collected
+                color = colors_list[i % len(colors_list)]
+                pie_canvas.create_arc(cx-r, cy-r, cx+r, cy+r,
+                                      start=start_angle, extent=max(extent, 1),
+                                      fill=color, outline=c["card_bg"], width=2)
+                start_angle += extent
+
+            # Legend
+            legend_x = cx + r + 50
+            for i, cls in enumerate(sorted_classes):
+                ly = 30 + i * 22
+                color = colors_list[i % len(colors_list)]
+                pie_canvas.create_rectangle(legend_x, ly, legend_x+14, ly+14,
+                                            fill=color, outline="")
+                collected = class_data[cls]["collected"]
+                pending = class_data[cls]["pending"]
+                pct = round(collected / total_class_collected * 100, 1)
+                pie_canvas.create_text(legend_x+20, ly+7,
+                                       text=f"{cls}: RS {collected:,.0f} ({pct}%) | Pending: RS {pending:,.0f}",
+                                       anchor="w", fill=c["text"], font=("Helvetica",9))
+
+        # ── Paid vs Pending Overview ──────────────────────────
+        chart3 = tk.Frame(content, bg=c["card_bg"], padx=20, pady=15)
+        chart3.pack(fill="x", pady=8)
+        tk.Label(chart3, text="Paid vs Pending Overview",
+                 font=("Helvetica",13,"bold"), bg=c["card_bg"], fg=c["text"]).pack(anchor="w")
+
+        overview_canvas = tk.Canvas(chart3, bg=c["card_bg"], height=80,
+                                    highlightthickness=0)
+        overview_canvas.pack(fill="x", pady=10)
+
+        bar_total = total_collected + total_pending or 1
+        paid_pct = total_collected / bar_total
+        bar_full_w = 800
+        paid_w = int(bar_full_w * paid_pct)
+
+        overview_canvas.create_rectangle(20, 20, 20 + paid_w, 60,
+                                         fill="#10b981", outline="")
+        overview_canvas.create_rectangle(20 + paid_w, 20, 20 + bar_full_w, 60,
+                                         fill="#ef4444", outline="")
+        overview_canvas.create_text(20 + paid_w // 2, 40,
+                                    text=f"Paid: {round(paid_pct*100,1)}%",
+                                    fill="white", font=("Helvetica",10,"bold"))
+        if paid_w < bar_full_w - 60:
+            overview_canvas.create_text(20 + paid_w + (bar_full_w - paid_w) // 2, 40,
+                                        text=f"Pending: {round((1-paid_pct)*100,1)}%",
+                                        fill="white", font=("Helvetica",10,"bold"))
+
+        tk.Button(win, text="✖ Close", bg=c["danger"], fg="white",
+                  font=("Helvetica",10,"bold"), command=win.destroy).pack(pady=10)
+
     def _print_voucher(self):
         if not HAS_PDF:
             messagebox.showerror("Error","reportlab not installed. Run: pip install reportlab")
             return
         if not _ensure_pdf():
-            messagebox.showerror("Error","reportlab load nahi ho saka."); return
+            messagebox.showerror("Error","Could not load reportlab."); return
         sel = self._fees_tree.selection()
         if not sel:
             messagebox.showerror("Error","Select a fee row first"); return
@@ -5322,14 +5658,18 @@ class SchoolManagerPro:
 
         report_btns = [
             ("👨‍🎓 Student Report (CSV)", c["primary"], self._export_students),
+            ("👩‍🏫 Teacher Report (CSV)", "#06b6d4", self._export_teachers),
             ("🕒 Attendance Report (CSV)", "#8b5cf6", self._export_attendance),
             ("💰 Fee Report (CSV)", c["success"], self._export_fee_report),
             ("📝 Exam Report (CSV)", c["warning"], self._export_exam_report),
+            ("📦 Export All Data (CSV)", "#7c3aed", self._export_all_csv),
         ]
-        for label, bg, cmd in report_btns:
+        for i, (label, bg, cmd) in enumerate(report_btns):
             tk.Button(btn_f, text=label, bg=bg, fg="white",
-                      font=("Helvetica",11,"bold"), padx=20, pady=12,
-                      command=cmd).pack(side="left", padx=8)
+                      font=("Helvetica",9,"bold"), padx=10, pady=8,
+                      command=cmd).grid(row=i//3, column=i%3, padx=4, pady=4, sticky="ew")
+        for col in range(3):
+            btn_f.columnconfigure(col, weight=1)
 
         # stats view
         sf = tk.Frame(self.main, bg=c["content_bg"], padx=25, pady=10)
@@ -5502,6 +5842,75 @@ class SchoolManagerPro:
 
         tk.Button(dlg, text="📥 Export CSV", bg=c["success"], fg="white",
                   command=export).pack(pady=15)
+
+    def _export_teachers(self):
+        path = filedialog.asksaveasfilename(defaultextension=".csv",
+            filetypes=[("CSV","*.csv")], title="Export Teachers")
+        if not path: return
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(["Name","Subject","Phone","Email","Qualification","Experience","Salary"])
+            for t in self.teachers:
+                w.writerow([t.get("name",""), t.get("subject",""),
+                            t.get("phone",""), t.get("email",""),
+                            t.get("qualification",""), t.get("experience",""),
+                            t.get("salary","")])
+        messagebox.showinfo("✅", f"Teachers exported to {path}")
+
+    def _export_all_csv(self):
+        folder = filedialog.askdirectory(title="Select folder to export all CSV files")
+        if not folder: return
+        import csv as _csv
+        # 1) Students
+        with open(os.path.join(folder, "students.csv"), "w", newline="", encoding="utf-8") as f:
+            w = _csv.writer(f)
+            w.writerow(["Adm No","Name","Father","Class","Section","Phone","Email","DOB","Address"])
+            for s in self.students:
+                w.writerow([s.get("admissionNo",""), s.get("name",""), s.get("father",""),
+                            s.get("class",""), s.get("section",""), s.get("phone",""),
+                            s.get("email",""), s.get("dob",""), s.get("address","")])
+        # 2) Teachers
+        with open(os.path.join(folder, "teachers.csv"), "w", newline="", encoding="utf-8") as f:
+            w = _csv.writer(f)
+            w.writerow(["Name","Subject","Phone","Email","Qualification","Experience","Salary"])
+            for t in self.teachers:
+                w.writerow([t.get("name",""), t.get("subject",""), t.get("phone",""),
+                            t.get("email",""), t.get("qualification",""),
+                            t.get("experience",""), t.get("salary","")])
+        # 3) Attendance
+        with open(os.path.join(folder, "attendance.csv"), "w", newline="", encoding="utf-8") as f:
+            w = _csv.writer(f)
+            w.writerow(["Name","Adm No","Class","Date","Status"])
+            for s in self.students:
+                for day, stat in s.get("attendance", {}).items():
+                    w.writerow([s.get("name",""), s.get("admissionNo",""),
+                                s.get("class",""), day, stat])
+        # 4) Fee Records
+        with open(os.path.join(folder, "fee_records.csv"), "w", newline="", encoding="utf-8") as f:
+            w = _csv.writer(f)
+            w.writerow(["Adm No","Name","Class","Month","Due","Paid","Discount","Fine","Balance","Status"])
+            for s in self.students:
+                for mon, rec in s.get("fee_records", {}).items():
+                    due = rec.get("due",0); paid = rec.get("paid",0)
+                    disc = rec.get("discount",0); fine = rec.get("fine",0)
+                    bal = due - disc + fine - paid
+                    w.writerow([s.get("admissionNo",""), s.get("name",""),
+                                s.get("class",""), mon, due, paid, disc, fine, bal,
+                                "Paid" if rec.get("paidFlag") else "Pending"])
+        # 5) Exams
+        with open(os.path.join(folder, "exams.csv"), "w", newline="", encoding="utf-8") as f:
+            w = _csv.writer(f)
+            w.writerow(["Subject","Class","Date","Max Marks","Student","Adm No","Marks","Grade"])
+            for ex in self.exams:
+                for sid, mk in ex.get("marks", {}).items():
+                    stu = next((s for s in self.students if s["id"]==sid), {})
+                    w.writerow([ex["subject"], ex["class"], ex.get("date",""),
+                                ex["max_marks"], stu.get("name",""),
+                                stu.get("admissionNo",""), mk,
+                                self._grade(mk, ex["max_marks"])])
+        messagebox.showinfo("✅", f"All data exported to:\n{folder}\n\n"
+                            "Files: students.csv, teachers.csv, attendance.csv,\n"
+                            "fee_records.csv, exams.csv")
 
     # ════════════════════════════════════════════════════════════════════════
     #  USERS
@@ -5812,6 +6221,56 @@ class SchoolManagerPro:
                                   font=("Helvetica",10,"bold"), padx=14, pady=7,
                                   command=retry_face_install)
             btn_retry.pack(anchor="w")
+
+        # ── QR Verification Settings ──────────────────────────────────────
+        qr_sec = self._settings_section(frm, "🔒 QR Code Verification")
+        tk.Label(qr_sec, text="Configure trusted network and email for QR attendance verification.",
+                 bg=c["card_bg"], fg=c["subtext"], font=("Helvetica",9),
+                 wraplength=500, justify="left").pack(anchor="w", pady=(0,8))
+
+        # Trusted Host / WiFi
+        tk.Label(qr_sec, text="Trusted Host (auto-detected):",
+                 bg=c["card_bg"], fg=c["subtext"]).pack(anchor="w", pady=(4,0))
+        host_var = tk.StringVar(value=self.settings.get("trusted_host", ""))
+        host_e = tk.Entry(qr_sec, textvariable=host_var,
+                          bg=c["dark_light"], fg=c["text"],
+                          insertbackground=c["text"], relief="flat", bd=7,
+                          font=("Helvetica",10))
+        host_e.pack(fill="x", pady=3)
+
+        current_host = self._get_host_port()
+        tk.Label(qr_sec, text=f"Current device: {current_host}",
+                 bg=c["card_bg"], fg="#93c5fd", font=("Helvetica",8)).pack(anchor="w")
+
+        def set_current_host():
+            host_var.set(current_host)
+
+        tk.Button(qr_sec, text="📡 Set Current Device as Trusted",
+                  bg="#065f46", fg="white", font=("Helvetica",9),
+                  command=set_current_host).pack(anchor="w", pady=4)
+
+        # Trusted Email Domain
+        tk.Label(qr_sec, text="Trusted Email Domain (e.g. school.edu.pk):",
+                 bg=c["card_bg"], fg=c["subtext"]).pack(anchor="w", pady=(8,0))
+        email_domain_var = tk.StringVar(value=self.settings.get("trusted_email_domain", ""))
+        email_e = tk.Entry(qr_sec, textvariable=email_domain_var,
+                           bg=c["dark_light"], fg=c["text"],
+                           insertbackground=c["text"], relief="flat", bd=7,
+                           font=("Helvetica",10))
+        email_e.pack(fill="x", pady=3)
+        tk.Label(qr_sec, text="Leave empty to allow all emails. Students must have matching email for QR attendance.",
+                 bg=c["card_bg"], fg="#94a3b8", font=("Helvetica",8),
+                 wraplength=500, justify="left").pack(anchor="w")
+
+        def save_qr_settings():
+            self.settings["trusted_host"] = host_var.get().strip()
+            self.settings["trusted_email_domain"] = email_domain_var.get().strip()
+            self.save_data()
+            messagebox.showinfo("✅", "QR verification settings saved!")
+
+        tk.Button(qr_sec, text="💾 Save QR Settings",
+                  bg=c["primary"], fg="white", font=("Helvetica",10),
+                  command=save_qr_settings).pack(anchor="w", pady=8)
 
         # ── Data management ──────────────────────────────────────────────
         data_sec = self._settings_section(frm, "💾 Data Management")
