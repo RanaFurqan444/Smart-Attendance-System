@@ -730,9 +730,14 @@ class SchoolManagerPro:
             for pth in paths:
                 img = _cv2.imread(pth, _cv2.IMREAD_GRAYSCALE)
                 if img is None: continue
-                fdet = face_cascade.detectMultiScale(img, 1.1, 4, minSize=(50,50))
+                # Enhanced preprocessing for low-quality cameras
+                clahe = _cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+                img = clahe.apply(img)
+                img = _cv2.GaussianBlur(img, (3, 3), 0)
+                fdet = face_cascade.detectMultiScale(img, 1.05, 3, minSize=(30,30))
                 if len(fdet):
-                    x,y,w,h = fdet[0]; roi = img[y:y+h, x:x+w]
+                    x,y,w,h = max(fdet, key=lambda r: r[2]*r[3])
+                    roi = img[y:y+h, x:x+w]
                 else:
                     roi = img
                 train_imgs.append(roi)
@@ -755,9 +760,12 @@ class SchoolManagerPro:
             img = _cv2.imread(path, _cv2.IMREAD_GRAYSCALE)
             if img is None:
                 messagebox.showerror("Error", "Could not load image."); return
-            fdet = face_cascade.detectMultiScale(img, 1.1, 4, minSize=(50,50))
+            clahe_fb = _cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            img = clahe_fb.apply(img)
+            img = _cv2.GaussianBlur(img, (3, 3), 0)
+            fdet = face_cascade.detectMultiScale(img, 1.05, 3, minSize=(30,30))
             if len(fdet):
-                x,y,w,h = fdet[0]; roi = img[y:y+h, x:x+w]
+                x,y,w,h = max(fdet, key=lambda r: r[2]*r[3]); roi = img[y:y+h, x:x+w]
             else:
                 roi = img
             lbl, dist, sim_pct, thresh, _ = recognizer.is_match(roi)
@@ -774,6 +782,9 @@ class SchoolManagerPro:
             return
         cap.set(_cv2.CAP_PROP_FRAME_WIDTH,  640)
         cap.set(_cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+        # CLAHE for live frame preprocessing
+        _clahe_live = _cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
 
         # ── Build UI ───────────────────────────────────────────────────────
         c = self.colors
@@ -809,7 +820,7 @@ class SchoolManagerPro:
                  fg="#fbbf24").pack()
 
         progress = ttk.Progressbar(win, length=500, mode="determinate",
-                                   maximum=5)
+                                   maximum=3)
         progress.pack(pady=6)
 
         tk.Button(win, text="✖  Cancel", bg="#7f1d1d", fg="white",
@@ -905,12 +916,15 @@ class SchoolManagerPro:
             fn = state["frame_no"]
 
             gray  = _cv2.cvtColor(frame, _cv2.COLOR_BGR2GRAY)
+            # Enhanced preprocessing for low-quality laptop cameras
+            gray  = _clahe_live.apply(gray)
+            gray  = _cv2.GaussianBlur(gray, (3, 3), 0)
             rgb   = _cv2.cvtColor(frame, _cv2.COLOR_BGR2RGB)
             disp  = _cv2.resize(rgb, (660, 440))
             sx = 660/frame.shape[1]; sy = 440/frame.shape[0]
 
             faces_rect = face_cascade.detectMultiScale(
-                gray, scaleFactor=1.1, minNeighbors=5, minSize=(80,80))
+                gray, scaleFactor=1.05, minNeighbors=3, minSize=(40,40))
 
             # ── Update canvas ──────────────────────────────────────────────
             canvas.delete("all")
@@ -951,7 +965,7 @@ class SchoolManagerPro:
                     state["blink_streak"] = 0
                 state["eye_c_prev"] = ec
 
-                is_live = state["blink_done"] or state["motion_count"] >= 8
+                is_live = state["blink_done"] or state["motion_count"] >= 5
 
                 # ── Match ────────────────────────────────────────────────
                 m_label, dist, sim_pct, thresh, eyes_ok = \
@@ -1015,7 +1029,7 @@ class SchoolManagerPro:
                     fill="#64748b", font=("Helvetica",10))
 
             # ── UI labels ─────────────────────────────────────────────────
-            is_live = state["blink_done"] or state["motion_count"] >= 8
+            is_live = state["blink_done"] or state["motion_count"] >= 5
 
             if matched:
                 sim_var.set(
@@ -1028,7 +1042,7 @@ class SchoolManagerPro:
             if not is_live:
                 live_var.set(
                     f"👁️ Please blink your eyes  "
-                    f"|  motion: {state['motion_count']}/8")
+                    f"|  motion: {state['motion_count']}/5")
             else:
                 live_var.set("✅ Liveness confirmed!")
 
@@ -1044,8 +1058,8 @@ class SchoolManagerPro:
                 progress["value"] = state["good_frames"]
                 status_var.set(
                     f"✅ Recognized: {matched['username']}  "
-                    f"({state['good_frames']}/5)  verifying…")
-                if state["good_frames"] >= 5:
+                    f"({state['good_frames']}/3)  verifying…")
+                if state["good_frames"] >= 3:
                     self._face_login_running = False
                     status_var.set(
                         f"✅ Logging in: {matched['username']}…")
@@ -1206,10 +1220,14 @@ class SchoolManagerPro:
             fn = frame_no[0]
             rgb  = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Enhanced preprocessing for low-quality laptop cameras
+            _clahe_reg = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            gray = _clahe_reg.apply(gray)
+            gray = cv2.GaussianBlur(gray, (3, 3), 0)
             disp = cv2.resize(rgb, (660, 430))
             sx = 660/frame.shape[1]; sy = 430/frame.shape[0]
 
-            faces = face_casc.detectMultiScale(gray, 1.1, 5, minSize=(80,80))
+            faces = face_casc.detectMultiScale(gray, 1.05, 3, minSize=(40,40))
 
             canvas.delete("all")
             pil_img = _PI.fromarray(disp)
@@ -3393,7 +3411,10 @@ class SchoolManagerPro:
         return False
 
     def _verify_qr_network(self, qr_host):
-        """Verify QR was generated on the trusted network/device."""
+        """Verify QR was generated on the trusted device.
+        Works with WiFi, personal hotspot, DHCP — IP can change.
+        Hostname is the primary identifier (doesn't change with network).
+        """
         trusted_host = self.settings.get("trusted_host", "")
         if not trusted_host:
             return True  # no restriction set
@@ -3401,18 +3422,19 @@ class SchoolManagerPro:
         qr_parts = qr_host.split("|")
         trusted_parts = trusted_host.split("|")
         current_parts = current_host.split("|")
-        # Match if QR host IP matches trusted OR current device IP
-        # Also match by hostname if IP fails (for DHCP environments)
         qr_ip = qr_parts[0] if qr_parts else ""
         qr_hostname = qr_parts[1] if len(qr_parts) > 1 else ""
         trusted_ip = trusted_parts[0] if trusted_parts else ""
         trusted_hostname = trusted_parts[1] if len(trusted_parts) > 1 else ""
         current_ip = current_parts[0] if current_parts else ""
         current_hostname = current_parts[1] if len(current_parts) > 1 else ""
-        # QR is valid if it was generated on trusted device OR current device
-        if qr_ip == trusted_ip or qr_ip == current_ip:
+        # Primary: hostname match (works across WiFi/hotspot/DHCP)
+        if qr_hostname and current_hostname and qr_hostname == current_hostname:
             return True
-        if qr_hostname and (qr_hostname == trusted_hostname or qr_hostname == current_hostname):
+        if qr_hostname and trusted_hostname and qr_hostname == trusted_hostname:
+            return True
+        # Secondary: IP match (for devices where hostname is generic)
+        if qr_ip and (qr_ip == trusted_ip or qr_ip == current_ip):
             return True
         return False
 
@@ -3445,10 +3467,9 @@ class SchoolManagerPro:
         qr_dir = self.data_dir / "qr_codes"
         qr_dir.mkdir(exist_ok=True)
 
-        # Auto-set trusted host to current device if not already set
-        if not self.settings.get("trusted_host"):
-            self.settings["trusted_host"] = self._get_host_port()
-            self.save_data()
+        # Always update trusted host to current device (IP may change with hotspot/WiFi)
+        self.settings["trusted_host"] = self._get_host_port()
+        self.save_data()
 
         c = self.colors
         prev = tk.Toplevel(self.root)
